@@ -1,0 +1,101 @@
+import * as THREE from 'three';
+
+export class WebGLRenderer {
+  private renderer: THREE.WebGLRenderer;
+  private scene: THREE.Scene;
+  private camera: THREE.OrthographicCamera;
+  private quad: THREE.Mesh<THREE.PlaneGeometry, THREE.Material>;
+  private targets = new Map<string, THREE.WebGLRenderTarget>();
+  private imageTextures = new Map<string, THREE.Texture>();
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, alpha: false });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    const geo = new THREE.PlaneGeometry(2, 2);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    this.quad = new THREE.Mesh(geo, mat);
+    this.scene.add(this.quad);
+  }
+
+  get canvas(): HTMLCanvasElement {
+    return this.renderer.domElement;
+  }
+
+  setSize(width: number, height: number) {
+    this.renderer.setSize(width, height);
+  }
+
+  createTarget(id: string, width: number, height: number) {
+    const target = new THREE.WebGLRenderTarget(width, height, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+    });
+    this.targets.set(id, target);
+    return target;
+  }
+
+  getTarget(id: string): THREE.WebGLRenderTarget | undefined {
+    return this.targets.get(id);
+  }
+
+  loadImageTexture(id: string, dataUrl: string): Promise<THREE.Texture> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const texture = new THREE.Texture(img);
+        texture.needsUpdate = true;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        this.imageTextures.set(id, texture);
+        resolve(texture);
+      };
+      img.src = dataUrl;
+    });
+  }
+
+  getImageTexture(id: string): THREE.Texture | undefined {
+    return this.imageTextures.get(id);
+  }
+
+  renderWithMaterial(
+    material: THREE.Material,
+    target?: THREE.WebGLRenderTarget,
+  ) {
+    this.quad.material.dispose();
+    this.quad.material = material;
+    this.renderer.setRenderTarget(target ?? null);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  renderSampler2DInput(texture: THREE.Texture, target?: THREE.WebGLRenderTarget) {
+    const mat = new THREE.MeshBasicMaterial({ map: texture });
+    this.renderWithMaterial(mat, target);
+  }
+
+  renderToScreen(texture: THREE.Texture) {
+    const mat = new THREE.MeshBasicMaterial({ map: texture });
+    this.quad.material.dispose();
+    this.quad.material = mat;
+    this.renderer.setRenderTarget(null);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  clear() {
+    this.renderer.setRenderTarget(null);
+    this.renderer.clear();
+  }
+
+  dispose() {
+    for (const t of this.targets.values()) t.dispose();
+    for (const t of this.imageTextures.values()) t.dispose();
+    this.targets.clear();
+    this.imageTextures.clear();
+    this.renderer.dispose();
+  }
+}
