@@ -3,6 +3,7 @@ import { serializeProject, downloadProject, deserializeProject } from '../utils/
 import { useRef, useState } from 'react';
 import { VERSION } from '../version';
 import type { DataType } from '../types';
+import { CUSTOM_SHADER_CODE, CUSTOM_2IN1_SHADER, predefinedShaders } from '../engine/predefinedShaders';
 
 export function Header() {
   const { nodes, edges, projectName, setProjectName, isRunning, setRunning, loadGraph, clearGraph } = useGraphStore();
@@ -38,6 +39,14 @@ export function Header() {
   const btnClass = 'px-2.5 py-0.5 text-[11px] font-bold text-[#1d1d1f] hover:text-[#007aff] transition-colors cursor-default';
 
   const [inputOpen, setInputOpen] = useState(false);
+  const [shaderOpen, setShaderOpen] = useState(false);
+
+  const shaderItems = [
+    { label: 'CUSTOM SHADER', code: CUSTOM_SHADER_CODE, custom: true },
+    { label: 'CUSTOM 2IN-1OUT', code: CUSTOM_2IN1_SHADER, custom: true },
+    { separator: true },
+    ...predefinedShaders.map((s) => ({ label: s.label, code: s.code, custom: false })),
+  ];
 
   const inputTypes: { label: string; type: DataType }[] = [
     { label: 'FLOAT', type: 'float' },
@@ -65,7 +74,33 @@ export function Header() {
 
       <span className="mx-1 text-[#c7c7cc]">|</span>
 
-      <button onClick={() => useGraphStore.getState().addNode('shader')} className={btnClass}>+ SHADER</button>
+      <div className="relative">
+        <button onClick={() => setShaderOpen(!shaderOpen)} className={btnClass}>+ SHADER</button>
+        {shaderOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setShaderOpen(false)} />
+            <div className="absolute top-full left-0 mt-0.5 bg-white border border-[#d2d2d7] rounded-lg shadow-lg z-20 py-1 min-w-[160px]">
+              {shaderItems.map((item, i) => {
+                if ('separator' in item) {
+                  return <div key={`sep_${i}`} className="mx-2 my-1 border-t border-[#e8e8ed]" />;
+                }
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      useGraphStore.getState().addShaderNode(item.code, item.label);
+                      setShaderOpen(false);
+                    }}
+                    className="block w-full text-left px-3 py-1 text-[11px] font-bold text-[#1d1d1f] hover:text-[#007aff] hover:bg-[#f5f5f7] transition-colors cursor-default"
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="relative">
         <button onClick={() => setInputOpen(!inputOpen)} className={btnClass}>+ INPUT</button>

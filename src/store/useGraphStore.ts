@@ -22,6 +22,7 @@ interface GraphState {
   onConnect: OnConnect;
   addNode: (type: ShaderNodeData['type'], position?: { x: number; y: number }) => void;
   addInputNode: (dataType: DataType, position?: { x: number; y: number }) => void;
+  addShaderNode: (code: string, label: string, position?: { x: number; y: number }) => void;
   removeNode: (id: string) => void;
   updateNodeData: (id: string, data: Partial<ShaderNodeData>) => void;
   updateNodeInputType: (id: string, dataType: DataType) => void;
@@ -79,10 +80,10 @@ function createDefaultShaderCode(type: ShaderNodeData['type'], inputDataType?: D
 
 let nodeCascade = 0;
 
-function makeNode(type: ShaderNodeData['type'], position?: { x: number; y: number }, inputDataType?: DataType): Node<ShaderNodeData> {
+function makeNode(type: ShaderNodeData['type'], position?: { x: number; y: number }, inputDataType?: DataType, shaderCodeOverride?: string, labelOverride?: string): Node<ShaderNodeData> {
   nodeCounter++;
   const id = `${type}_${nodeCounter}`;
-  const shaderCode = createDefaultShaderCode(type, inputDataType);
+  const shaderCode = shaderCodeOverride ?? createDefaultShaderCode(type, inputDataType);
   const parsed = parseShader(shaderCode);
 
   const cascade = nodeCascade++ * 28;
@@ -94,7 +95,7 @@ function makeNode(type: ShaderNodeData['type'], position?: { x: number; y: numbe
     position: pos,
     data: {
       type,
-      label: `${type}_${nodeCounter}`,
+      label: labelOverride ?? `${type}_${nodeCounter}`,
       shaderCode,
       inputs: parsed.inputs,
       outputs: parsed.outputs,
@@ -138,6 +139,11 @@ export const useGraphStore = create<GraphState>()(
 
     addInputNode: (dataType, position) => {
       const node = makeNode('input', position, dataType);
+      set((state) => { state.nodes.push(node); });
+    },
+
+    addShaderNode: (code, label, position) => {
+      const node = makeNode('shader', position, undefined, code, label);
       set((state) => { state.nodes.push(node); });
     },
 
