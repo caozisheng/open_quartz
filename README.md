@@ -2,6 +2,8 @@
 
 A web-based visual shader node editor inspired by Apple Quartz Composer.
 
+![screenshot](docs/screenshot.png)
+
 Build and connect GLSL shaders visually using a node graph. Each node is a shader processing unit — edit its GLSL code, and the input/output ports are auto-generated from `uniform`/`out` declarations. Connect nodes to create shader pipelines, run them, and see real-time WebGL output.
 
 ## Features
@@ -42,3 +44,7 @@ Output goes to `dist/`.
 ## Tech Stack
 
 React 19 · TypeScript 6 · Vite 8 · React Flow 12 · Three.js · Zustand · CodeMirror 6 · Tailwind CSS 4
+
+## License
+
+MIT — see [LICENSE](LICENSE).
