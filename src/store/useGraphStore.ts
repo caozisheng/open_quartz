@@ -341,6 +341,7 @@ export const useGraphStore = create<GraphState>()(
           state.selectedNodeId = null;
           state.outputPreviews = {};
           state.savedFilePath = null;
+          state.projectName = 'Untitled';
         });
         nodeCounter = 0;
         nodeCascade = 0;
