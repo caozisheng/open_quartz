@@ -1,7 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
-import { javascript } from '@codemirror/lang-javascript';
+import { glsl } from 'codemirror-lang-glsl';
+import { linter } from '@codemirror/lint';
+import { glslLinter } from '../../engine/shaderLinter';
 
 interface ShaderEditorProps {
   code: string;
@@ -28,7 +30,8 @@ export function ShaderEditor({ code, onChange }: ShaderEditorProps) {
       doc: code,
       extensions: [
         basicSetup,
-        javascript(),
+        glsl(),
+        linter(glslLinter),
         EditorView.updateListener.of(onUpdate),
         EditorView.theme({
           '&': { fontSize: '12px', backgroundColor: '#ffffff' },
