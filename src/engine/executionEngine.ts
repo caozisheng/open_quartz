@@ -65,10 +65,19 @@ export class ExecutionEngine {
 
         if (node.data.type === 'shader') {
           const upstreamMap = new Map<string, string>();
+          const upstreamScalarValues = new Map<string, unknown>();
           for (const edge of upstreamEdges) {
             const port = node.data.inputs.find((p) => p.id === edge.targetHandle);
-            if (port && port.dataType === 'sampler2D') {
+            if (port) {
               upstreamMap.set(port.label, edge.source);
+              if (port.dataType !== 'sampler2D') {
+                const srcNode = nodeMap.get(edge.source);
+                if (srcNode?.data.type === 'input') {
+                  const srcLabel = srcNode.data.inputs[0]?.label;
+                  const v = srcNode.data.uniforms?.[srcLabel ?? ''] ?? port.defaultValue;
+                  upstreamScalarValues.set(port.label, v);
+                }
+              }
             }
           }
 
@@ -95,6 +104,11 @@ export class ExecutionEngine {
             if (tex) {
               material.uniforms[uniformName] = { value: tex };
             }
+          }
+
+          for (const [key, val] of upstreamScalarValues) {
+            const valNum = Number(val);
+            material.uniforms[key] = { value: isNaN(valNum) ? val : valNum };
           }
 
           for (const [key, val] of Object.entries(node.data.uniforms)) {

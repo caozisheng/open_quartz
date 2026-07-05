@@ -1,7 +1,8 @@
 import { useGraphStore } from '../store/useGraphStore';
 import { serializeProject, downloadProject, deserializeProject } from '../utils/projectIO';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { VERSION } from '../version';
+import type { DataType } from '../types';
 
 export function Header() {
   const { nodes, edges, projectName, setProjectName, isRunning, setRunning, loadGraph, clearGraph } = useGraphStore();
@@ -36,6 +37,18 @@ export function Header() {
 
   const btnClass = 'px-2.5 py-0.5 text-[11px] font-bold text-[#1d1d1f] hover:text-[#007aff] transition-colors cursor-default';
 
+  const [inputOpen, setInputOpen] = useState(false);
+
+  const inputTypes: { label: string; type: DataType }[] = [
+    { label: 'FLOAT', type: 'float' },
+    { label: 'INT', type: 'int' },
+    { label: 'BOOL', type: 'bool' },
+    { label: 'VEC2', type: 'vec2' },
+    { label: 'VEC3', type: 'vec3' },
+    { label: 'VEC4', type: 'vec4' },
+    { label: 'IMAGE', type: 'sampler2D' },
+  ];
+
   return (
     <header className="flex items-center gap-1 px-4 py-1 bg-white border-b border-[#d2d2d7] select-none text-[11px]">
       <span className="flex items-baseline gap-1.5 mr-2">
@@ -53,8 +66,27 @@ export function Header() {
       <span className="mx-1 text-[#c7c7cc]">|</span>
 
       <button onClick={() => useGraphStore.getState().addNode('shader')} className={btnClass}>+ SHADER</button>
-      <button onClick={() => useGraphStore.getState().addInputNode('float')} className={btnClass}>+ INPUT</button>
-      <button onClick={() => useGraphStore.getState().addInputNode('sampler2D')} className={btnClass}>+ IMAGE</button>
+
+      <div className="relative">
+        <button onClick={() => setInputOpen(!inputOpen)} className={btnClass}>+ INPUT</button>
+        {inputOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setInputOpen(false)} />
+            <div className="absolute top-full left-0 mt-0.5 bg-white border border-[#d2d2d7] rounded-lg shadow-lg z-20 py-1 min-w-[100px]">
+              {inputTypes.map(({ label, type }) => (
+                <button
+                  key={type}
+                  onClick={() => { useGraphStore.getState().addInputNode(type); setInputOpen(false); }}
+                  className="block w-full text-left px-3 py-1 text-[11px] font-bold text-[#1d1d1f] hover:text-[#007aff] hover:bg-[#f5f5f7] transition-colors cursor-default"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
       <button onClick={() => useGraphStore.getState().addNode('output')} className={btnClass}>+ OUTPUT</button>
 
       <span className="mx-1 text-[#c7c7cc]">|</span>

@@ -29,11 +29,16 @@ export function compileNodeShader(
 
   let src = `precision highp float;\nin vec2 v_uv;\nout vec4 fragColor;\n`;
 
-  // Inject sampler2D uniforms for connected upstream nodes (keep original names)
+  // Inject uniforms for connected upstream nodes (keep original names)
   for (const [uniformName, sourceNodeId] of upstreamMap) {
-    src += `uniform sampler2D ${uniformName};\n`;
-    upstreamSamplers.set(uniformName, sourceNodeId);
-    const re = new RegExp(`uniform\\s+sampler2D\\s+${uniformName}\\s*;?`, 'g');
+    const port = inputPorts.find((p) => p.label === uniformName);
+    if (port?.dataType === 'sampler2D') {
+      src += `uniform sampler2D ${uniformName};\n`;
+      upstreamSamplers.set(uniformName, sourceNodeId);
+    } else if (port) {
+      src += `uniform ${port.dataType} ${uniformName};\n`;
+    }
+    const re = new RegExp(`uniform\\s+\\w+\\s+${uniformName}\\s*;?`, 'g');
     userCode = userCode.replace(re, '');
   }
 
