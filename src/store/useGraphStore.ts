@@ -118,7 +118,7 @@ export const useGraphStore = create<GraphState>()(
 
     onConnect: (connection) => {
       set((state) => {
-        state.edges = addEdge({ ...connection, type: 'smoothstep' }, state.edges);
+        state.edges = addEdge({ ...connection, type: 'bezier' }, state.edges);
       });
     },
 
@@ -182,7 +182,7 @@ export const useGraphStore = create<GraphState>()(
     loadGraph: (nodes, edges) => {
       set((state) => {
         state.nodes = nodes;
-        state.edges = edges;
+        state.edges = edges.map((e) => ({ ...e, type: 'bezier' }));
         state.selectedNodeId = null;
       });
     },
