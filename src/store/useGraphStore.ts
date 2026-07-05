@@ -77,16 +77,21 @@ function createDefaultShaderCode(type: ShaderNodeData['type'], inputDataType?: D
   }
 }
 
+let nodeCascade = 0;
+
 function makeNode(type: ShaderNodeData['type'], position?: { x: number; y: number }, inputDataType?: DataType): Node<ShaderNodeData> {
   nodeCounter++;
   const id = `${type}_${nodeCounter}`;
   const shaderCode = createDefaultShaderCode(type, inputDataType);
   const parsed = parseShader(shaderCode);
 
+  const cascade = nodeCascade++ * 28;
+  const pos = position ?? { x: 100 + cascade, y: 100 + cascade };
+
   return {
     id,
     type,
-    position: position ?? { x: 100 + Math.random() * 300, y: 100 + Math.random() * 300 },
+    position: pos,
     data: {
       type,
       label: `${type}_${nodeCounter}`,
