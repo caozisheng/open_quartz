@@ -8,9 +8,14 @@ const HEADER_H = 28;
 
 type ShaderNodeType = Node<ShaderNodeData>;
 
-export function ShaderNode({ data, selected }: NodeProps<ShaderNodeType>) {
-  const accent = getAccent(data.type);
+export function ShaderNode({ id, data, selected }: NodeProps<ShaderNodeType>) {
   const edges = useGraphStore((s) => s.edges);
+  const nodeErrors = useGraphStore((s) => s.nodeErrors);
+  const error = nodeErrors[id];
+  const hasUnconnectedInput = data.inputs.some(
+    (port) => !edges.some((e) => e.targetHandle === port.id)
+  );
+  const accent = error ? '#ff3b30' : hasUnconnectedInput ? '#8e8e93' : getAccent(data.type);
 
   return (
     <div
@@ -31,6 +36,7 @@ export function ShaderNode({ data, selected }: NodeProps<ShaderNodeType>) {
       <div style={{ paddingTop: 2, paddingBottom: 2 }}>
         {data.inputs.map((port) => {
           const connected = edges.some((e) => e.targetHandle === port.id);
+          const portErr = !connected && !!error;
           return (
             <div
               key={port.id}
@@ -43,11 +49,11 @@ export function ShaderNode({ data, selected }: NodeProps<ShaderNodeType>) {
                 id={port.id}
                 className="!w-3 !h-3 !border-2"
                 style={{
-                  borderColor: PORT_COLOR,
-                  backgroundColor: connected ? PORT_COLOR : 'transparent',
+                  borderColor: portErr ? '#ff3b30' : PORT_COLOR,
+                  backgroundColor: portErr ? '#ff3b30' : connected ? PORT_COLOR : 'transparent',
                 }}
               />
-              <span className="ml-4">{port.label}</span>
+              <span className={`ml-4 ${portErr ? 'text-[#ff3b30] font-medium' : ''}`}>{port.label}</span>
               <span className="ml-auto text-[9px] text-[#aeaeb2]">{port.dataType}</span>
             </div>
           );

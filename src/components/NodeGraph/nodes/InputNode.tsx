@@ -17,10 +17,13 @@ type InputNodeType = Node<ShaderNodeData>;
 
 export function InputNode({ id, data, selected }: NodeProps<InputNodeType>) {
   const updateNodeData = useGraphStore((s) => s.updateNodeData);
+  const nodeErrors = useGraphStore((s) => s.nodeErrors);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentType = (data.inputDataType ?? 'float') as DataType;
-  const accent = '#007aff';
+  const error = nodeErrors[id];
+  const hasNoValue = currentType === 'sampler2D' && !data.imageDataUrl;
+  const accent = error ? '#ff3b30' : hasNoValue ? '#8e8e93' : '#007aff';
 
   const handleImageClick = useCallback(() => {
     fileInputRef.current?.click();

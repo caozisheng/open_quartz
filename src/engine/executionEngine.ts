@@ -29,6 +29,7 @@ export class ExecutionEngine {
     nodes: Node<ShaderNodeData>[],
     edges: Edge[],
     onOutput?: (nodeId: string, dataUrl: string) => void,
+    onNodeError?: (nodeId: string, error: string) => void,
   ) {
     if (!this.renderer) return;
     this.running = true;
@@ -92,6 +93,15 @@ export class ExecutionEngine {
             }
           }
 
+          const unconnectedInputs = node.data.inputs.filter(
+            (port) => !upstreamEdges.some((e) => e.targetHandle === port.id)
+          );
+          if (unconnectedInputs.length > 0) {
+            const names = unconnectedInputs.map((p) => `'${p.label}'`).join(', ');
+            onNodeError?.(nodeId, `Unconnected input${unconnectedInputs.length > 1 ? 's' : ''}: ${names}. Connect all required inputs before running.`);
+            continue;
+          }
+
           let material: THREE.ShaderMaterial;
           let upstreamSamplers: Map<string, string>;
           try {
@@ -103,7 +113,9 @@ export class ExecutionEngine {
             material = compiled.material;
             upstreamSamplers = compiled.upstreamSamplers;
           } catch (e) {
-            console.warn(`Shader compile error for node ${nodeId}:`, e);
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn(`Shader compile error for node ${nodeId}:`, msg);
+            onNodeError?.(nodeId, msg);
             continue;
           }
 
@@ -154,7 +166,9 @@ export class ExecutionEngine {
             material = compiled.material;
             upstreamSamplers = compiled.upstreamSamplers;
           } catch (e) {
-            console.warn(`Shader compile error for node ${nodeId}:`, e);
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn(`Shader compile error for node ${nodeId}:`, msg);
+            onNodeError?.(nodeId, msg);
             continue;
           }
 
@@ -179,7 +193,11 @@ export class ExecutionEngine {
         }
       }
     } catch (e) {
-      console.error('Execution engine error:', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('Execution engine error:', msg);
+      if (order.length > 0) {
+        onNodeError?.(order[order.length - 1], msg);
+      }
     }
   }
 

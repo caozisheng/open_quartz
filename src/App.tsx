@@ -19,11 +19,13 @@ export default function App() {
         const nodes = state.nodes;
         const edges = state.edges;
 
-        const setOutputPreview = useGraphStore.getState().setOutputPreview;
-        const clearOutputPreviews = useGraphStore.getState().clearOutputPreviews;
+        const { setOutputPreview, clearOutputPreviews, setNodeError, clearNodeErrors } = useGraphStore.getState();
         clearOutputPreviews();
+        clearNodeErrors();
 
-        engine.run(nodes, edges, setOutputPreview)
+        engine.run(nodes, edges, setOutputPreview, (nodeId, error) => {
+          setNodeError(nodeId, error);
+        })
           .catch((err) => console.error('Execution error:', err))
           .finally(() => {
             engine.stop();

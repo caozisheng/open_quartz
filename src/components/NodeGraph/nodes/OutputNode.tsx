@@ -10,9 +10,13 @@ type OutputNodeType = Node<ShaderNodeData>;
 
 export function OutputNode({ id, data, selected }: NodeProps<OutputNodeType>) {
   const outputPreviews = useGraphStore((s) => s.outputPreviews);
+  const nodeErrors = useGraphStore((s) => s.nodeErrors);
   const edges = useGraphStore((s) => s.edges);
+  const error = nodeErrors[id];
   const hasOutput = !!outputPreviews[id];
-  const accent = hasOutput ? '#30d158' : '#8e8e93';
+  let accent = '#8e8e93';
+  if (error) accent = '#ff3b30';
+  else if (hasOutput) accent = '#30d158';
 
   return (
     <div

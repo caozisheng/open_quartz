@@ -5,9 +5,10 @@ import { useCallback } from 'react';
 
 
 export function SidePanel() {
-  const { nodes, selectedNodeId, updateNodeData, removeNode, outputPreviews } = useGraphStore();
+  const { nodes, selectedNodeId, updateNodeData, removeNode, outputPreviews, nodeErrors } = useGraphStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const data = selectedNode?.data;
+  const nodeError = selectedNodeId ? nodeErrors[selectedNodeId] : undefined;
 
   const handleLabelChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,6 +66,14 @@ export function SidePanel() {
           Delete
         </button>
       </div>
+
+      {/* Error display */}
+      {nodeError && (
+        <div className="px-4 py-2 bg-[#fff0f0] border-b border-[#ffd0d0]">
+          <div className="text-[10px] text-[#ff3b30] font-medium mb-0.5">Error</div>
+          <div className="text-[11px] text-[#1d1d1f] font-mono whitespace-pre-wrap break-words leading-snug max-h-24 overflow-y-auto">{nodeError}</div>
+        </div>
+      )}
 
       {/* Shader editor (only for shader type) */}
       {data.type === 'shader' && (

@@ -21,6 +21,7 @@ interface GraphState {
   isRunning: boolean;
   projectName: string;
   outputPreviews: Record<string, string>;
+  nodeErrors: Record<string, string>;
 
   undoStack: HistoryEntry[];
   redoStack: HistoryEntry[];
@@ -35,6 +36,7 @@ interface GraphState {
   addInputNode: (dataType: DataType, position?: { x: number; y: number }) => void;
   addShaderNode: (code: string, label: string, position?: { x: number; y: number }) => void;
   removeNode: (id: string) => void;
+  removeSelectedElements: () => void;
   updateNodeData: (id: string, data: Partial<ShaderNodeData>) => void;
   updateNodeInputType: (id: string, dataType: DataType) => void;
   setSelectedNode: (id: string | null) => void;
@@ -42,6 +44,8 @@ interface GraphState {
   setProjectName: (name: string) => void;
   setOutputPreview: (nodeId: string, dataUrl: string) => void;
   clearOutputPreviews: () => void;
+  setNodeError: (nodeId: string, error: string | null) => void;
+  clearNodeErrors: () => void;
   loadGraph: (nodes: Node<ShaderNodeData>[], edges: Edge[]) => void;
   clearGraph: () => void;
 }
@@ -154,6 +158,7 @@ export const useGraphStore = create<GraphState>()(
       isRunning: false,
       projectName: 'Untitled',
       outputPreviews: {},
+      nodeErrors: {},
       undoStack: [],
       redoStack: [],
 
@@ -231,6 +236,23 @@ export const useGraphStore = create<GraphState>()(
         });
       },
 
+      removeSelectedElements: () => {
+        const { nodes, edges } = get();
+        const selectedNodeIds = nodes.filter((n) => n.selected).map((n) => n.id);
+        const selectedEdgeIds = edges.filter((e) => e.selected).map((e) => e.id);
+        if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0) return;
+        saveSnapshot();
+        set((state) => {
+          state.nodes = state.nodes.filter((n) => !selectedNodeIds.includes(n.id));
+          state.edges = state.edges.filter(
+            (e) => !selectedEdgeIds.includes(e.id) && !selectedNodeIds.includes(e.source) && !selectedNodeIds.includes(e.target)
+          );
+          if (state.selectedNodeId && selectedNodeIds.includes(state.selectedNodeId)) {
+            state.selectedNodeId = null;
+          }
+        });
+      },
+
       updateNodeData: (id, data) => {
         if (data.shaderCode !== undefined) saveSnapshot();
         set((state) => {
@@ -278,6 +300,20 @@ export const useGraphStore = create<GraphState>()(
 
       clearOutputPreviews: () => {
         set((state) => { state.outputPreviews = {}; });
+      },
+
+      setNodeError: (nodeId, error) => {
+        set((state) => {
+          if (error === null) {
+            delete state.nodeErrors[nodeId];
+          } else {
+            state.nodeErrors[nodeId] = error;
+          }
+        });
+      },
+
+      clearNodeErrors: () => {
+        set((state) => { state.nodeErrors = {}; });
       },
 
       loadGraph: (nodes, edges) => {
