@@ -16,6 +16,29 @@ function stripInjected(code: string): string {
     .replace(/out\s+vec[234]\s+\w+\s*;/g, '');
 }
 
+export function validateFragmentShader(
+  gl: WebGL2RenderingContext | WebGLRenderingContext,
+  source: string,
+): string | null {
+  // Three.js prepends #version 300 es for GLSL3 RawShaderMaterial
+  const full = '#version 300 es\n' + source;
+  const shader = gl.createShader(gl.FRAGMENT_SHADER);
+  if (!shader) return 'Failed to create shader object';
+  gl.shaderSource(shader, full);
+  gl.compileShader(shader);
+  const status = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+  const log = gl.getShaderInfoLog(shader);
+  gl.deleteShader(shader);
+  if (!status) {
+    return log ?? 'Unknown compilation error';
+  }
+  // Even on success, report warnings
+  if (log && log.length > 0 && !log.includes('Success')) {
+    return `Warning: ${log}`;
+  }
+  return null;
+}
+
 export function compileNodeShader(
   nodeShaderCode: string,
   inputPorts: Array<{ label: string; dataType: string }>,
