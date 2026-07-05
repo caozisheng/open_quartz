@@ -37,8 +37,21 @@ export class ExecutionEngine {
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
     const textures = new Map<string, TextureSource>();
 
-    const w = 512;
-    const h = 512;
+    // Determine resolution from the first sampler2D input with an image
+    let w = 512;
+    let h = 512;
+    for (const node of nodes) {
+      if (node.data.inputDataType === 'sampler2D' && node.data.imageDataUrl) {
+        const img = await new Promise<HTMLImageElement>((resolve) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.src = node.data.imageDataUrl!;
+        });
+        w = img.naturalWidth;
+        h = img.naturalHeight;
+        break;
+      }
+    }
     this.renderer.setSize(w, h);
 
     try {

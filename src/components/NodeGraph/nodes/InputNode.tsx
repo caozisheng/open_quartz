@@ -3,6 +3,12 @@ import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import type { ShaderNodeData, DataType } from '../../../types';
 import { useGraphStore } from '../../../store/useGraphStore';
 
+const VEC_COMPONENTS: Record<string, string[]> = {
+  vec2: ['x', 'y'],
+  vec3: ['x', 'y', 'z'],
+  vec4: ['x', 'y', 'z', 'w'],
+};
+
 const PORT_COLOR = '#8e8e93';
 const ROW_H = 26;
 const HEADER_H = 28;
@@ -80,30 +86,59 @@ export function InputNode({ id, data, selected }: NodeProps<InputNodeType>) {
         </div>
       ) : (
         <div style={{ paddingTop: 2, paddingBottom: 2 }}>
-          {data.inputs.map((port) => (
-            <div
-              key={port.id}
-              className="flex items-center text-[11px] text-[#1d1d1f] px-3"
-              style={{ height: ROW_H, position: 'relative' }}
-            >
-                <input
-                type="text"
-                value={String(data.uniforms?.[port.label] ?? port.defaultValue ?? '')}
-                onChange={(e) => updateNodeData(id, { uniforms: { ...data.uniforms, [port.label]: e.target.value } })}
-                className="flex-1 bg-white border border-[#d2d2d7] rounded px-1.5 py-0.5 text-right text-[#1d1d1f] text-[10px] outline-none focus:border-[#007aff] mr-7"
-                placeholder="—"
-              />
-              {data.outputs[0] && (
-                <Handle
-                  type="source"
-                  position={Position.Right}
-                  id={data.outputs[0].id}
-                  className="!w-2.5 !h-2.5 !border-2 !border-white"
-                  style={{ backgroundColor: PORT_COLOR }}
-                />
-              )}
-            </div>
-          ))}
+          {data.inputs.map((port) => {
+            const comps = VEC_COMPONENTS[port.dataType];
+            const arr: number[] = Array.isArray(data.uniforms?.[port.label])
+              ? (data.uniforms[port.label] as number[])
+              : [0, 0, 0, 0];
+            return (
+              <div
+                key={port.id}
+                className="flex text-[11px] text-[#1d1d1f] px-3"
+                style={{ minHeight: ROW_H, position: 'relative', paddingTop: comps ? 4 : 0, paddingBottom: comps ? 4 : 0 }}
+              >
+                {comps ? (
+                  <div className="flex-1 flex flex-col gap-0.5 mr-7 justify-center">
+                    {comps.map((c, i) => (
+                      <div key={c} className="flex items-center gap-1">
+                        <span className="text-[9px] text-[#aeaeb2] font-mono w-2">{c}</span>
+                        <input
+                          type="text"
+                          value={String(arr[i] ?? 0)}
+                          onChange={(e) => {
+                            const next = [...comps.map((_, j) => arr[j] ?? 0)];
+                            const parsed = parseFloat(e.target.value);
+                            next[i] = isNaN(parsed) ? 0 : parsed;
+                            updateNodeData(id, { uniforms: { ...data.uniforms, [port.label]: next } });
+                          }}
+                          className="flex-1 bg-white border border-[#d2d2d7] rounded px-1 py-0.5 text-right text-[#1d1d1f] text-[10px] outline-none focus:border-[#007aff]"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center flex-1 min-h-[26px]">
+                    <input
+                      type="text"
+                      value={String(data.uniforms?.[port.label] ?? port.defaultValue ?? '')}
+                      onChange={(e) => updateNodeData(id, { uniforms: { ...data.uniforms, [port.label]: e.target.value } })}
+                      className="flex-1 bg-white border border-[#d2d2d7] rounded px-1.5 py-0.5 text-right text-[#1d1d1f] text-[10px] outline-none focus:border-[#007aff] mr-7"
+                      placeholder="—"
+                    />
+                  </div>
+                )}
+                {data.outputs[0] && (
+                  <Handle
+                    type="source"
+                    position={Position.Right}
+                    id={data.outputs[0].id}
+                    className="!w-2.5 !h-2.5 !border-2 !border-white"
+                    style={{ backgroundColor: PORT_COLOR }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

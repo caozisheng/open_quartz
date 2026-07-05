@@ -6,9 +6,10 @@ interface PortInspectorProps {
   outputs: Port[];
   uniforms: Record<string, unknown>;
   onUniformChange: (label: string, value: unknown) => void;
+  showOutputs?: boolean;
 }
 
-export function PortInspector({ inputs, outputs, uniforms, onUniformChange }: PortInspectorProps) {
+export function PortInspector({ inputs, outputs, uniforms, onUniformChange, showOutputs = true }: PortInspectorProps) {
   return (
     <div className="space-y-4">
       {/* Inputs */}
@@ -30,24 +31,26 @@ export function PortInspector({ inputs, outputs, uniforms, onUniformChange }: Po
       </div>
 
       {/* Outputs */}
-      <div>
-        <h4 className="text-[11px] font-semibold text-[#86868b] uppercase tracking-wider mb-2">Outputs</h4>
-        {outputs.length === 0 && (
-          <p className="text-[11px] text-[#aeaeb2] italic">Add out variables to your shader to create outputs</p>
-        )}
-        <div className="space-y-1">
-          {outputs.map((port) => (
-            <div key={port.id} className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
-              <span
-                className="w-2 h-2 rounded-full inline-block"
-                style={{ backgroundColor: DATA_TYPE_COLORS[port.dataType] }}
-              />
-              <span className="font-medium">{port.label}</span>
-              <span className="text-[9px] text-[#aeaeb2]">{port.dataType}</span>
-            </div>
-          ))}
+      {showOutputs && (
+        <div>
+          <h4 className="text-[11px] font-semibold text-[#86868b] uppercase tracking-wider mb-2">Outputs</h4>
+          {outputs.length === 0 && (
+            <p className="text-[11px] text-[#aeaeb2] italic">Add out variables to your shader to create outputs</p>
+          )}
+          <div className="space-y-1">
+            {outputs.map((port) => (
+              <div key={port.id} className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
+                <span
+                  className="w-2 h-2 rounded-full inline-block"
+                  style={{ backgroundColor: DATA_TYPE_COLORS[port.dataType] }}
+                />
+                <span className="font-medium">{port.label}</span>
+                <span className="text-[9px] text-[#aeaeb2]">{port.dataType}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -85,6 +88,29 @@ function PortRow({
       />
       <span className="text-[#1d1d1f] font-medium w-20 truncate">{port.label}</span>
       <span className="text-[9px] text-[#aeaeb2] w-12">{port.dataType}</span>
+      <VectorInput dataType={port.dataType} value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+const VEC_COMPONENTS: Record<string, string[]> = {
+  vec2: ['x', 'y'],
+  vec3: ['x', 'y', 'z'],
+  vec4: ['x', 'y', 'z', 'w'],
+};
+
+function VectorInput({
+  dataType,
+  value,
+  onChange,
+}: {
+  dataType: string;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const comps = VEC_COMPONENTS[dataType];
+  if (!comps) {
+    return (
       <input
         type="text"
         value={String(value ?? '')}
@@ -92,6 +118,29 @@ function PortRow({
         className="flex-1 bg-white border border-[#d2d2d7] rounded px-2 py-0.5 text-[#1d1d1f] text-[11px] outline-none focus:border-[#007aff]"
         placeholder="value"
       />
+    );
+  }
+
+  const arr: number[] = Array.isArray(value) ? value : [0, 0, 0, 0];
+
+  return (
+    <div className="flex-1 flex flex-col gap-0.5">
+      {comps.map((c, i) => (
+        <div key={c} className="flex items-center gap-1">
+          <span className="text-[9px] text-[#aeaeb2] font-mono w-2">{c}</span>
+          <input
+            type="text"
+            value={String(arr[i] ?? 0)}
+            onChange={(e) => {
+              const next = [...comps.map((_, j) => arr[j] ?? 0)];
+              const parsed = parseFloat(e.target.value);
+              next[i] = isNaN(parsed) ? 0 : parsed;
+              onChange(next);
+            }}
+            className="flex-1 bg-white border border-[#d2d2d7] rounded px-1 py-0.5 text-[#1d1d1f] text-[11px] outline-none focus:border-[#007aff]"
+          />
+        </div>
+      ))}
     </div>
   );
 }
