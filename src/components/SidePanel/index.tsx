@@ -78,17 +78,44 @@ export function SidePanel() {
         </div>
       )}
 
-      {/* Output node: inputs first, then preview */}
+      {/* Output node: inputs, size controls, then preview */}
       {data.type === 'output' ? (
         <>
           <div className="px-4 py-3 border-b border-[#e8e8ed] overflow-y-auto flex-shrink-0">
             <PortInspector
               inputs={data.inputs}
-              outputs={[]}
+              outputs={data.outputs}
               uniforms={data.uniforms}
               onUniformChange={handleUniformChange}
-              showOutputs={false}
             />
+
+            {/* Width / Height controls */}
+            <div className="mt-3 flex items-center gap-3">
+              <div className="flex-1">
+                <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={8192}
+                  value={String(data.width ?? '')}
+                  onChange={(e) => updateNodeData(selectedNodeId!, { width: parseInt(e.target.value) || undefined })}
+                  className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
+                  placeholder="auto"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={8192}
+                  value={String(data.height ?? '')}
+                  onChange={(e) => updateNodeData(selectedNodeId!, { height: parseInt(e.target.value) || undefined })}
+                  className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
+                  placeholder="auto"
+                />
+              </div>
+            </div>
           </div>
           <div className="flex-1 flex flex-col min-h-0 border-t border-[#e8e8ed]">
             <div className="px-4 py-1.5 text-[11px] text-[#86868b] font-medium">

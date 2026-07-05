@@ -29,7 +29,7 @@ export function OutputNode({ id, data, selected }: NodeProps<OutputNodeType>) {
       </div>
 
       {/* Input handles */}
-      <div style={{ paddingTop: 2, paddingBottom: 6 }}>
+      <div style={{ paddingTop: 2, paddingBottom: 2 }}>
         {data.inputs.map((port) => {
           const connected = edges.some((e) => e.targetHandle === port.id);
           return (
@@ -53,6 +53,32 @@ export function OutputNode({ id, data, selected }: NodeProps<OutputNodeType>) {
             </div>
           );
         })}
+      </div>
+
+      {/* Divider if both input and output ports exist */}
+      {data.inputs.length > 0 && data.outputs.length > 0 && (
+        <div className="mx-3 border-t border-[#f0f0f0]" />
+      )}
+
+      {/* Output handles */}
+      <div style={{ paddingTop: 2, paddingBottom: 6 }}>
+        {data.outputs.map((port) => (
+          <div
+            key={port.id}
+            className="flex items-center justify-end text-[11px] text-[#1d1d1f] px-3"
+            style={{ height: ROW_H, position: 'relative' }}
+          >
+            <span className="mr-auto text-[9px] text-[#aeaeb2]">{port.dataType}</span>
+            <span className="mr-4">{port.label}</span>
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={port.id}
+              className="!w-2.5 !h-2.5 !border-2 !border-white"
+              style={{ backgroundColor: PORT_COLOR }}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );

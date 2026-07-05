@@ -135,14 +135,47 @@ export class ExecutionEngine {
         }
 
         if (node.data.type === 'output') {
-          const upstreamEdge = upstreamEdges[0];
-          if (upstreamEdge) {
-            const src = textures.get(upstreamEdge.source);
-            if (src?.kind === 'fbo') {
-              const dataUrl = this.renderer.readTargetToDataURL(src.target);
-              onOutput?.(nodeId, dataUrl);
+          const upstreamMap = new Map<string, string>();
+          for (const edge of upstreamEdges) {
+            const port = node.data.inputs.find((p) => p.id === edge.targetHandle);
+            if (port) {
+              upstreamMap.set(port.label, edge.source);
             }
           }
+
+          let material: THREE.ShaderMaterial;
+          let upstreamSamplers: Map<string, string>;
+          try {
+            const compiled = compileNodeShader(
+              node.data.shaderCode,
+              node.data.inputs,
+              upstreamMap,
+            );
+            material = compiled.material;
+            upstreamSamplers = compiled.upstreamSamplers;
+          } catch (e) {
+            console.warn(`Shader compile error for node ${nodeId}:`, e);
+            continue;
+          }
+
+          for (const [uniformName, sourceNodeId] of upstreamSamplers) {
+            const src = textures.get(sourceNodeId);
+            let tex: THREE.Texture | undefined;
+            if (src?.kind === 'fbo') tex = src.target.texture;
+            else if (src?.kind === 'image') tex = src.texture;
+            if (tex) {
+              material.uniforms[uniformName] = { value: tex };
+            }
+          }
+
+          const outW = (node.data.width as number) || w;
+          const outH = (node.data.height as number) || h;
+          const target = this.renderer.createTarget(nodeId, outW, outH);
+          this.renderer.renderWithMaterial(material, target);
+          textures.set(nodeId, { kind: 'fbo', target });
+
+          const dataUrl = this.renderer.readTargetToDataURL(target);
+          onOutput?.(nodeId, dataUrl);
         }
       }
     } catch (e) {
