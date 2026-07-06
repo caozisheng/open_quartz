@@ -120,9 +120,9 @@ export function ImageLightbox({ src, onClose }: Props) {
     for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
     const blob = new Blob([ab], { type: mime });
 
-    if (typeof showSaveFilePicker === 'function') {
+    if (typeof (window as any).showSaveFilePicker === 'function') {
       try {
-        const handle = await showSaveFilePicker({
+        const handle = await (window as any).showSaveFilePicker({
           suggestedName: 'preview.png',
           types: [{ description: 'PNG Image', accept: { 'image/png': ['.png'] } }],
         });
