@@ -18,11 +18,18 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 
 ### Node Graph Editor
 - **Drag, connect, and arrange** shader nodes on an infinite canvas (React Flow)
-- **4 node types**: Shader (custom GLSL), Input (data sources), Output (render targets), Constant (fixed values)
+- **3 node types**: Shader (custom GLSL), Input (data sources), Output (render targets)
 - **Bezier curve edges** with type-safe connections — ports carry GLSL type metadata
 - **MiniMap** for graph overview navigation
 - **Box selection** for multi-node operations
 - **Fit-to-view** on load
+
+### Input System
+- **Grouped INPUT menu** — inputs organized into SCALAR (float/int/bool), VECTOR (vec2/vec3/vec4), and SAMPLER2D (Image/Framebuffer) groups with hover-expand nested sub-menus
+- **Image input** — load images as sampler2D textures, with read-only width/height display
+- **Framebuffer input** — load raw binary dump files as textures with configurable format (RGBA8 / RGBA32F / RG8 / RG32F / R8 / R32F / NV12), width, height, and stride
+- **Texture sampling config** — all sampler2D inputs support Filter (LINEAR / NEAREST) and Wrap (CLAMP / REPEAT / MIRROR) settings
+- **Immediate preview** — Image and Framebuffer inputs show preview thumbnails as soon as data is loaded, without pressing RUN
 
 ### Node Inspector & Editor (Side Panel)
 - **Editable node label** and type badge
@@ -30,14 +37,23 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 - **Port inspector** with color-coded data type indicators and inline uniform value editing
 - **Per-component vector editing** (x/y/z/w) for vec2/vec3/vec4 uniforms
 - **Image loading** for sampler2D input nodes (click or drag-and-drop)
+- **Framebuffer config panel** — format dropdown, width/height inputs, stride input
 - **Output preview** showing rendered results after graph execution
-- **Width/Height controls** for output nodes (1–8192 px, auto by default)
+- **Output Auto Size** — checkbox to auto-infer width/height from inputs; manual override available (1–8192 px)
+
+### Preview Lightbox
+- **Full-screen image viewer** — click any preview to open with scroll-to-zoom, drag-to-pan, and double-click reset
+- **Nearest-neighbor rendering** — pixelated display for accurate pixel inspection at zoom
+- **Save as PNG** — toolbar button with native save dialog (File System Access API) and fallback download
+- **Color Picker** — toggle crosshair mode to inspect pixel coordinates (x, y) and RGBA color values with floating tooltip and color swatch
 
 ### Shader Engine
 - **FBO-based multi-pass rendering** via Three.js — each shader node renders to an offscreen framebuffer and passes results downstream
+- **HalfFloat FBOs** for input/shader intermediates to preserve float precision through the pipeline
 - **Topological sort** ensures correct execution order through the graph
 - **Automatic uniform wiring** — connections map upstream output textures to downstream sampler uniforms
 - **Scalar uniform injection** — unconnected inputs are editable inline in the inspector
+- **Float render target readback** for preview generation
 - **GLSL 300 es** support
 
 ### Predefined Shader Templates (10)
@@ -53,12 +69,13 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 - Pixelate (with configurable block size)
 
 ### Project Management
-- **Save** — export your graph as a `.quartz.json` file
-- **Load** — import a previously saved project
-- **Editable project name** in the toolbar
+- **Save / Save As** — export your graph as a `.quartz.json` file with native save dialog
+- **Load** — import a previously saved project with auto-fit view
+- **Editable project name** in the toolbar (double-click to rename)
+- **Project file tracking** — SAVE silently overwrites last saved file
 
 ### Undo / Redo
-- **50-level history** with Ctrl+Z (undo) / Ctrl+Shift+Z or Ctrl+Y (redo)
+- **50-level history** with Cmd/Ctrl+Z (undo) / Cmd/Ctrl+Shift+Z or Cmd/Ctrl+Y (redo)
 - Snapshots taken before destructive operations
 
 ### GLSL Linting & Autocompletion
@@ -68,7 +85,10 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 
 ### Desktop App (Tauri)
 - Runs as a native desktop application via **Tauri 2**
-- Same feature set as the web version with a native window
+- **Custom titlebar** — no system title bar; app header serves as the drag region
+- **macOS**: overlay title bar style with native traffic light controls
+- **Windows**: custom minimize/maximize/close buttons
+- Same feature set as the web version
 
 ## Getting Started
 
@@ -81,13 +101,15 @@ Open http://localhost:5173 in your browser.
 
 ## Usage
 
-1. Click **+ Shader**, **+ Input**, or **+ Output** in the toolbar to add nodes
-2. Use the **Shader** dropdown to pick from 10 predefined shader templates or create a custom one
-3. Select a shader node to edit its GLSL code in the right panel
-4. Drag between port handles to connect nodes
-5. Edit uniform values inline in the port inspector
-6. Click **Run** to execute the graph and see output
-7. Click **Save** to download a `.quartz.json` project file, or **Load** to restore one
+1. Click **SHADER** dropdown to pick from predefined templates or create a custom shader
+2. Click **INPUT** dropdown and hover a group (SCALAR / VECTOR / SAMPLER2D) to add input nodes
+3. Click **OUTPUT** to add an output node
+4. Select a shader node to edit its GLSL code in the right panel
+5. Drag between port handles to connect nodes
+6. Edit uniform values inline in the port inspector
+7. Click **RUN** to execute the graph and see output
+8. Click the output preview to open the lightbox — use the toolbar to save or inspect pixel colors
+9. Click **SAVE** to download a `.quartz.json` project file, or **LOAD** to restore one
 
 ## Desktop app (Tauri)
 
