@@ -6,10 +6,64 @@ import { VERSION } from '../version';
 import type { DataType, InputMode } from '../types';
 import { CUSTOM_SHADER_CODE, CUSTOM_2IN1_SHADER, predefinedShaders } from '../engine/predefinedShaders';
 
+const isMac = navigator.platform.startsWith('Mac');
+
+function isInteractiveTarget(el: HTMLElement, boundary: HTMLElement): boolean {
+  let cur: HTMLElement | null = el;
+  while (cur && cur !== boundary) {
+    const tag = cur.tagName;
+    if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'A' || tag === 'SELECT') return true;
+    cur = cur.parentElement;
+  }
+  return false;
+}
+
 export function Header() {
   const { nodes, edges, projectName, savedFilePath, setProjectName, setSavedFilePath, isRunning, setRunning, loadGraph, clearGraph, undo, redo, undoStack, redoStack } = useGraphStore();
   const { fitView } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+
+  const [tauriApp, setTauriApp] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    import('@tauri-apps/api/core').then(({ isTauri }) => {
+      if (cancelled) return;
+      if (!isTauri()) return;
+      setTauriApp(true);
+      if (!isMac) {
+        import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+          getCurrentWindow().setDecorations(false);
+        });
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleHeaderMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (!tauriApp) return;
+    if (isInteractiveTarget(e.target as HTMLElement, e.currentTarget)) return;
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().startDragging();
+    });
+  }, [tauriApp]);
+
+  const handleWindowMinimize = () => {
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().minimize();
+    });
+  };
+  const handleWindowMaximize = () => {
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().toggleMaximize();
+    });
+  };
+  const handleWindowClose = () => {
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().close();
+    });
+  };
 
   const fitAfterLoad = useCallback(() => {
     requestAnimationFrame(() => fitView({ duration: 200 }));
@@ -148,8 +202,13 @@ export function Header() {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
   return (
-    <header className="flex items-center gap-1 px-4 py-1 bg-white border-b border-[#d2d2d7] select-none text-[11px]">
-      <span className="flex items-baseline gap-1.5 mr-2">
+    <header
+      ref={headerRef}
+      onMouseDown={handleHeaderMouseDown}
+      className={`flex items-center gap-1 px-4 py-1 bg-white border-b border-[#d2d2d7] select-none text-[11px]${tauriApp && isMac ? ' pl-[88px]' : ''}`}
+    >
+      <span className="flex items-center gap-1.5 mr-2">
+        <img src="/favicon.svg" alt="" className="w-[16px] h-[16px]" />
         <span className="font-bold text-[#1d1d1f] text-[13px] tracking-wider">OPENQUARTZ</span>
         <span className="text-[11px] text-[#aeaeb2]">v{VERSION}</span>
       </span>
@@ -347,6 +406,20 @@ export function Header() {
           <span>{isRunning ? 'STOP' : 'RUN'}</span>
         </button>
       </div>
+
+      {tauriApp && !isMac && (
+        <div className="flex items-center ml-2">
+          <button onClick={handleWindowMinimize} className="w-[28px] h-[28px] flex items-center justify-center text-[#86868b] hover:bg-[#e8e8ed] rounded transition-colors" title="Minimize">
+            <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor" /></svg>
+          </button>
+          <button onClick={handleWindowMaximize} className="w-[28px] h-[28px] flex items-center justify-center text-[#86868b] hover:bg-[#e8e8ed] rounded transition-colors" title="Maximize">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1"><rect x="0.5" y="0.5" width="9" height="9" /></svg>
+          </button>
+          <button onClick={handleWindowClose} className="w-[28px] h-[28px] flex items-center justify-center text-[#86868b] hover:bg-[#ff3b30] hover:text-white rounded transition-colors" title="Close">
+            <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"><line x1="1" y1="1" x2="9" y2="9" /><line x1="9" y1="1" x2="1" y2="9" /></svg>
+          </button>
+        </div>
+      )}
 
       {saveAsOpen && (
         <>
