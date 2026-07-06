@@ -113,7 +113,7 @@ export class WebGLRenderer {
     height: number,
     stride?: number,
   ): THREE.DataTexture {
-    let data: ArrayBufferView;
+    let data: Uint8Array | Float32Array;
     let threeFormat: THREE.PixelFormat;
     let threeType: THREE.TextureDataType;
     let bpp: number;
