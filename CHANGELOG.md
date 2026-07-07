@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1b] — 2026-07-07
+
+### Features
+
+- **Output node as framebuffer** — output node redesigned to match framebuffer input pattern:
+  - Card shows single-row layout with input/output handles flanking a thumbnail preview
+  - Configurable render target format: RGBA8, RGBA32F, RG8, RG32F, R8, R32F
+  - Texture sampling config (Filter: LINEAR/NEAREST, Wrap: CLAMP/REPEAT/MIRROR)
+  - Format and resolution badge on card thumbnail
+
 ## [0.4.0b] — 2026-07-06
 
 ### Features
