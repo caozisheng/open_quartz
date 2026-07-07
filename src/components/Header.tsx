@@ -186,12 +186,33 @@ export function Header() {
     { label: 'SCALAR', items: [
       { label: 'FLOAT', type: 'float' },
       { label: 'INT', type: 'int' },
+      { label: 'UINT', type: 'uint' },
       { label: 'BOOL', type: 'bool' },
     ]},
     { label: 'VECTOR', items: [
       { label: 'VEC2', type: 'vec2' },
       { label: 'VEC3', type: 'vec3' },
       { label: 'VEC4', type: 'vec4' },
+    ]},
+    { label: 'INT VECTOR', items: [
+      { label: 'IVEC2', type: 'ivec2' },
+      { label: 'IVEC3', type: 'ivec3' },
+      { label: 'IVEC4', type: 'ivec4' },
+    ]},
+    { label: 'UINT VECTOR', items: [
+      { label: 'UVEC2', type: 'uvec2' },
+      { label: 'UVEC3', type: 'uvec3' },
+      { label: 'UVEC4', type: 'uvec4' },
+    ]},
+    { label: 'BOOL VECTOR', items: [
+      { label: 'BVEC2', type: 'bvec2' },
+      { label: 'BVEC3', type: 'bvec3' },
+      { label: 'BVEC4', type: 'bvec4' },
+    ]},
+    { label: 'MATRIX', items: [
+      { label: 'MAT2', type: 'mat2' },
+      { label: 'MAT3', type: 'mat3' },
+      { label: 'MAT4', type: 'mat4' },
     ]},
     { label: 'SAMPLER2D', items: [
       { label: 'IMAGE', type: 'sampler2D', mode: 'image' },

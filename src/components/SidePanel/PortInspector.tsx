@@ -97,6 +97,21 @@ const VEC_COMPONENTS: Record<string, string[]> = {
   vec2: ['x', 'y'],
   vec3: ['x', 'y', 'z'],
   vec4: ['x', 'y', 'z', 'w'],
+  ivec2: ['x', 'y'],
+  ivec3: ['x', 'y', 'z'],
+  ivec4: ['x', 'y', 'z', 'w'],
+  uvec2: ['x', 'y'],
+  uvec3: ['x', 'y', 'z'],
+  uvec4: ['x', 'y', 'z', 'w'],
+  bvec2: ['x', 'y'],
+  bvec3: ['x', 'y', 'z'],
+  bvec4: ['x', 'y', 'z', 'w'],
+};
+
+const MAT_DIMS: Record<string, number> = {
+  mat2: 2,
+  mat3: 3,
+  mat4: 4,
 };
 
 function VectorInput({
@@ -109,6 +124,38 @@ function VectorInput({
   onChange: (v: unknown) => void;
 }) {
   const comps = VEC_COMPONENTS[dataType];
+  const matDim = MAT_DIMS[dataType];
+
+  if (matDim) {
+    const total = matDim * matDim;
+    const arr: number[] = Array.isArray(value) ? value : new Array(total).fill(0);
+    return (
+      <div className="flex-1 flex flex-col gap-0.5">
+        {Array.from({ length: matDim }, (_, row) => (
+          <div key={row} className="flex gap-0.5">
+            {Array.from({ length: matDim }, (_, col) => {
+              const idx = col * matDim + row;
+              return (
+                <input
+                  key={col}
+                  type="text"
+                  value={String(arr[idx] ?? 0)}
+                  onChange={(e) => {
+                    const next = Array.from({ length: total }, (_, k) => arr[k] ?? 0);
+                    const parsed = parseFloat(e.target.value);
+                    next[idx] = isNaN(parsed) ? 0 : parsed;
+                    onChange(next);
+                  }}
+                  className="flex-1 min-w-0 bg-white border border-[#d2d2d7] rounded px-0.5 py-0.5 text-center text-[#1d1d1f] text-[10px] outline-none focus:border-[#007aff]"
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (!comps) {
     return (
       <input

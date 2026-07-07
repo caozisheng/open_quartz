@@ -2,8 +2,8 @@ import type { Port, DataType } from '../types';
 import { GLSL_VALID_TYPES } from '../types';
 import type { ParsedShader } from './types';
 
-const UNIFORM_RE = /uniform\s+(float|int|bool|vec[234]|ivec[234]|mat[234]|sampler2D|samplerCube)\s+(\w+)(?:\s*=\s*([^;]+))?\s*;/g;
-const OUTPUT_RE = /out\s+(vec[234]|float|int|ivec[234]|mat[234])\s+(\w+)\s*;/g;
+const UNIFORM_RE = /uniform\s+(float|int|uint|bool|[biu]?vec[234]|mat[234]|sampler2D|samplerCube)\s+(\w+)(?:\s*=\s*([^;]+))?\s*;/g;
+const OUTPUT_RE = /out\s+(float|int|uint|bool|[biu]?vec[234]|mat[234])\s+(\w+)\s*;/g;
 
 let portCounter = 0;
 function nextPortId(): string {

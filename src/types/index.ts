@@ -1,7 +1,9 @@
 export type DataType =
-  | 'float' | 'int' | 'bool'
+  | 'float' | 'int' | 'uint' | 'bool'
   | 'vec2' | 'vec3' | 'vec4'
   | 'ivec2' | 'ivec3' | 'ivec4'
+  | 'uvec2' | 'uvec3' | 'uvec4'
+  | 'bvec2' | 'bvec3' | 'bvec4'
   | 'mat2' | 'mat3' | 'mat4'
   | 'sampler2D' | 'samplerCube';
 
@@ -78,6 +80,7 @@ export interface ProjectFile {
 export const DATA_TYPE_COLORS: Record<DataType, string> = {
   float: '#4fc3f7',
   int: '#81c784',
+  uint: '#66bb6a',
   bool: '#ffb74d',
   vec2: '#ba68c8',
   vec3: '#e57373',
@@ -85,6 +88,12 @@ export const DATA_TYPE_COLORS: Record<DataType, string> = {
   ivec2: '#a1887f',
   ivec3: '#90a4ae',
   ivec4: '#7986cb',
+  uvec2: '#78909c',
+  uvec3: '#8d6e63',
+  uvec4: '#5c6bc0',
+  bvec2: '#ffa726',
+  bvec3: '#ff7043',
+  bvec4: '#ab47bc',
   mat2: '#4db6ac',
   mat3: '#4dd0e1',
   mat4: '#4fc3f7',
@@ -93,9 +102,11 @@ export const DATA_TYPE_COLORS: Record<DataType, string> = {
 };
 
 export const GLSL_VALID_TYPES: DataType[] = [
-  'float', 'int', 'bool',
+  'float', 'int', 'uint', 'bool',
   'vec2', 'vec3', 'vec4',
   'ivec2', 'ivec3', 'ivec4',
+  'uvec2', 'uvec3', 'uvec4',
+  'bvec2', 'bvec3', 'bvec4',
   'mat2', 'mat3', 'mat4',
   'sampler2D', 'samplerCube',
 ];

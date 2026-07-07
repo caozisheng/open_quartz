@@ -8,6 +8,21 @@ const VEC_COMPONENTS: Record<string, string[]> = {
   vec2: ['x', 'y'],
   vec3: ['x', 'y', 'z'],
   vec4: ['x', 'y', 'z', 'w'],
+  ivec2: ['x', 'y'],
+  ivec3: ['x', 'y', 'z'],
+  ivec4: ['x', 'y', 'z', 'w'],
+  uvec2: ['x', 'y'],
+  uvec3: ['x', 'y', 'z'],
+  uvec4: ['x', 'y', 'z', 'w'],
+  bvec2: ['x', 'y'],
+  bvec3: ['x', 'y', 'z'],
+  bvec4: ['x', 'y', 'z', 'w'],
+};
+
+const MAT_DIMS: Record<string, number> = {
+  mat2: 2,
+  mat3: 3,
+  mat4: 4,
 };
 
 const PORT_COLOR = '#8e8e93';
@@ -171,16 +186,42 @@ export function InputNode({ id, data, selected }: NodeProps<InputNodeType>) {
         <div style={{ paddingTop: 2, paddingBottom: 2 }}>
           {data.inputs.map((port) => {
             const comps = VEC_COMPONENTS[port.dataType];
+            const matDim = MAT_DIMS[port.dataType];
             const arr: number[] = Array.isArray(data.uniforms?.[port.label])
               ? (data.uniforms[port.label] as number[])
-              : [0, 0, 0, 0];
+              : new Array(matDim ? matDim * matDim : 4).fill(0);
             return (
               <div
                 key={port.id}
                 className="flex text-[11px] text-[#1d1d1f] px-3"
-                style={{ minHeight: ROW_H, position: 'relative', paddingTop: comps ? 4 : 0, paddingBottom: comps ? 4 : 0 }}
+                style={{ minHeight: ROW_H, position: 'relative', paddingTop: comps || matDim ? 4 : 0, paddingBottom: comps || matDim ? 4 : 0 }}
               >
-                {comps ? (
+                {matDim ? (
+                  <div className="flex-1 flex flex-col gap-0.5 mr-7 justify-center">
+                    {Array.from({ length: matDim }, (_, row) => (
+                      <div key={row} className="flex gap-0.5">
+                        {Array.from({ length: matDim }, (_, col) => {
+                          const idx = col * matDim + row;
+                          return (
+                            <input
+                              key={col}
+                              type="text"
+                              value={String(arr[idx] ?? 0)}
+                              onChange={(e) => {
+                                const total = matDim * matDim;
+                                const next = Array.from({ length: total }, (_, k) => arr[k] ?? 0);
+                                const parsed = parseFloat(e.target.value);
+                                next[idx] = isNaN(parsed) ? 0 : parsed;
+                                updateNodeData(id, { uniforms: { ...data.uniforms, [port.label]: next } });
+                              }}
+                              className="flex-1 min-w-0 bg-white border border-[#d2d2d7] rounded px-0.5 py-0.5 text-center text-[#1d1d1f] text-[9px] outline-none focus:border-[#007aff]"
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ) : comps ? (
                   <div className="flex-1 flex flex-col gap-0.5 mr-7 justify-center">
                     {comps.map((c, i) => (
                       <div key={c} className="flex items-center gap-1">

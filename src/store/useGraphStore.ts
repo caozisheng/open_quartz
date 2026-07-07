@@ -55,16 +55,10 @@ interface GraphState {
 let nodeCounter = 0;
 
 function createInputShader(dataType: DataType): string {
-  switch (dataType) {
-    case 'float':   return `uniform float value;\nout float outputValue;\nvoid main() { outputValue = value; }`;
-    case 'int':     return `uniform int value;\nout int outputValue;\nvoid main() { outputValue = value; }`;
-    case 'bool':    return `uniform bool value;\nout bool outputValue;\nvoid main() { outputValue = value; }`;
-    case 'vec2':    return `uniform vec2 value;\nout vec2 outputValue;\nvoid main() { outputValue = value; }`;
-    case 'vec3':    return `uniform vec3 value;\nout vec3 outputValue;\nvoid main() { outputValue = value; }`;
-    case 'vec4':    return `uniform vec4 value;\nout vec4 outputValue;\nvoid main() { outputValue = value; }`;
-    case 'sampler2D': return `uniform sampler2D value;\nout vec4 outputValue;\nvoid main() { outputValue = texture(value, v_uv); }`;
-    default:        return `uniform float value;\nout float outputValue;\nvoid main() { outputValue = value; }`;
+  if (dataType === 'sampler2D') {
+    return `uniform sampler2D value;\nout vec4 outputValue;\nvoid main() { outputValue = texture(value, v_uv); }`;
   }
+  return `uniform ${dataType} value;\nout ${dataType} outputValue;\nvoid main() { outputValue = value; }`;
 }
 
 function createDefaultShaderCode(type: ShaderNodeData['type'], inputDataType?: DataType): string {
