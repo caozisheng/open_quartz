@@ -134,6 +134,7 @@ export class ExecutionEngine {
 
         let material: THREE.ShaderMaterial;
         let upstreamSamplers: Map<string, string>;
+        let preambleLines = 0;
         try {
           const compiled = compileNodeShader(
             node.data.shaderCode,
@@ -142,6 +143,7 @@ export class ExecutionEngine {
           );
           material = compiled.material;
           upstreamSamplers = compiled.upstreamSamplers;
+          preambleLines = compiled.preambleLines;
 
           const gl = this.renderer!.getContext();
           const fragSrc = material.fragmentShader as string;
@@ -179,7 +181,7 @@ export class ExecutionEngine {
           textures.set(nodeId, { kind: 'fbo', target });
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          const formatted = formatShaderError(msg, node.data.shaderCode);
+          const formatted = formatShaderError(msg, preambleLines);
           console.warn(`Shader error for node ${nodeId}:`, formatted);
           onNodeError?.(nodeId, formatted);
           continue;
@@ -206,6 +208,7 @@ export class ExecutionEngine {
 
         let material: THREE.ShaderMaterial;
         let upstreamSamplers: Map<string, string>;
+        let preambleLines = 0;
         try {
           const compiled = compileNodeShader(
             node.data.shaderCode,
@@ -214,6 +217,7 @@ export class ExecutionEngine {
           );
           material = compiled.material;
           upstreamSamplers = compiled.upstreamSamplers;
+          preambleLines = compiled.preambleLines;
 
           for (const [uniformName, sourceNodeId] of upstreamSamplers) {
             const src = textures.get(sourceNodeId);
@@ -243,7 +247,7 @@ export class ExecutionEngine {
           onOutputSize?.(nodeId, outW, outH);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          const formatted = formatShaderError(msg, node.data.shaderCode);
+          const formatted = formatShaderError(msg, preambleLines);
           console.warn(`Shader error for node ${nodeId}:`, formatted);
           onNodeError?.(nodeId, formatted);
         }
@@ -258,14 +262,20 @@ export class ExecutionEngine {
   }
 }
 
-function formatShaderError(msg: string, _shaderCode: string): string {
+function formatShaderError(msg: string, preambleLines: number): string {
   const lines = msg.split('\n');
   const relevant = lines.filter(
     (l) => l.includes('ERROR:') || l.includes('WARNING:')
   );
-  if (relevant.length > 0) return relevant.join('\n');
-  const short = lines.find(
+  const result = relevant.length > 0 ? relevant : lines.filter(
     (l) => l.includes('Shader Error') || l.includes('getProgramInfoLog')
   );
-  return short ?? msg;
+  if (result.length === 0) return msg;
+  if (preambleLines <= 0) return result.join('\n');
+  return result.map((line) =>
+    line.replace(/(\d+):(\d+):/g, (_match, strNum, lineNum) => {
+      const adjusted = parseInt(lineNum, 10) - preambleLines;
+      return `${strNum}:${adjusted > 0 ? adjusted : 1}:`;
+    })
+  ).join('\n');
 }

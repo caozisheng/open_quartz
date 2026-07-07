@@ -46,11 +46,13 @@ export function compileNodeShader(
 ): {
   material: THREE.ShaderMaterial;
   upstreamSamplers: Map<string, string>; // uniformName -> upstream nodeId
+  preambleLines: number;
 } {
   const upstreamSamplers = new Map<string, string>();
   let userCode = stripInjected(nodeShaderCode);
 
   let src = `precision highp float;\nin vec2 v_uv;\nout vec4 fragColor;\n`;
+  let uniformCount = 0;
 
   // Inject uniforms for connected upstream nodes (keep original names)
   for (const [uniformName, sourceNodeId] of upstreamMap) {
@@ -58,8 +60,10 @@ export function compileNodeShader(
     if (port?.dataType === 'sampler2D') {
       src += `uniform sampler2D ${uniformName};\n`;
       upstreamSamplers.set(uniformName, sourceNodeId);
+      uniformCount++;
     } else if (port) {
       src += `uniform ${port.dataType} ${uniformName};\n`;
+      uniformCount++;
     }
     const re = new RegExp(`uniform\\s+\\w+\\s+${uniformName}\\s*;?`, 'g');
     userCode = userCode.replace(re, '');
@@ -69,6 +73,7 @@ export function compileNodeShader(
   for (const input of inputPorts) {
     if (!upstreamMap.has(input.label) && input.dataType !== 'sampler2D') {
       src += `uniform ${input.dataType} ${input.label};\n`;
+      uniformCount++;
       const re = new RegExp(`uniform\\s+${input.dataType}\\s+${input.label}\\s*;?`, 'g');
       userCode = userCode.replace(re, '');
     }
@@ -83,5 +88,9 @@ export function compileNodeShader(
     glslVersion: THREE.GLSL3,
   });
 
-  return { material, upstreamSamplers };
+  // Three.js prepends '#version 300 es\n' for GLSL3 (1 line)
+  // src prefix: precision, v_uv, fragColor (3 lines) + uniforms + empty line before userCode
+  const preambleLines = 1 + 3 + uniformCount + 1;
+
+  return { material, upstreamSamplers, preambleLines };
 }

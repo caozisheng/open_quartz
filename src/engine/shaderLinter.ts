@@ -3,10 +3,11 @@ import type { EditorView } from 'codemirror';
 
 const ERR_RE = /ERROR:\s*\d+:(\d+):\s*(.*)/g;
 
-function buildFullSource(userCode: string): { full: string; offset: number } {
+function buildFullSource(userCode: string): { full: string; offset: number; strippedLines: number } {
   const cleaned = userCode
     .replace(/^#version\s+\d+\s*\n?/m, '')
     .replace(/^precision\s+\w+\s+\w+;\s*\n?/m, '');
+  const strippedLines = userCode.split('\n').length - cleaned.split('\n').length;
   const boilerplate = [
     '#version 300 es',
     'precision highp float;',
@@ -16,6 +17,7 @@ function buildFullSource(userCode: string): { full: string; offset: number } {
   return {
     full: boilerplate.join('\n') + '\n' + cleaned,
     offset: boilerplate.length,
+    strippedLines,
   };
 }
 
@@ -35,7 +37,7 @@ export function glslLinter(view: EditorView): Diagnostic[] {
   const gl = getGL();
   if (!gl) return [];
 
-  const { full, offset } = buildFullSource(code);
+  const { full, offset, strippedLines } = buildFullSource(code);
   const shader = gl.createShader(gl.FRAGMENT_SHADER);
   if (!shader) return [];
 
@@ -54,9 +56,10 @@ export function glslLinter(view: EditorView): Diagnostic[] {
   while ((m = ERR_RE.exec(log)) !== null) {
     const rawLine = parseInt(m[1], 10);
     const msg = m[2].trim();
-    const userLine = rawLine - offset;
-    if (userLine < 0) continue;
-    const line = view.state.doc.line(userLine + 1);
+    const cleanedLine = rawLine - offset;
+    if (cleanedLine < 1) continue;
+    const editorLine = Math.min(cleanedLine + strippedLines, view.state.doc.lines);
+    const line = view.state.doc.line(editorLine);
     diagnostics.push({
       from: line.from,
       to: line.to,
