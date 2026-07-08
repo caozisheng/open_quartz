@@ -279,29 +279,8 @@ export function SidePanel() {
       {data.type === 'renderer' && (
         <div className="px-4 py-3 border-t border-[#e8e8ed] flex-shrink-0">
           <div className="text-[10px] text-[#86868b] font-medium mb-2">RENDERER CONFIG</div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex-1">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
-              <input
-                type="number"
-                min={1}
-                max={8192}
-                value={String(data.rendererWidth ?? 512)}
-                onChange={(e) => updateNodeData(selectedNodeId!, { rendererWidth: parseInt(e.target.value) || 512 })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
-              <input
-                type="number"
-                min={1}
-                max={8192}
-                value={String(data.rendererHeight ?? 512)}
-                onChange={(e) => updateNodeData(selectedNodeId!, { rendererHeight: parseInt(e.target.value) || 512 })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-              />
-            </div>
+          <div className="text-[11px] text-[#86868b] mb-2">
+            Size follows upstream output{data.resolvedWidth && data.resolvedHeight ? `: ${data.resolvedWidth} × ${data.resolvedHeight}` : ''}
           </div>
           <label className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
             <input

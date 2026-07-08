@@ -25,12 +25,11 @@ export class RealtimeHost {
   private callbacks: HostCallbacks;
   private nodes: Node<ShaderNodeData>[] = [];
   private edges: Edge[] = [];
-  private previewInterval = 1000 / 15; // 15 fps readback
-  private lastPreviewTime = 0;
   private resolution = new Float32Array(3); // [w, h, pixelRatio]
   private videoSources = new Map<string, VideoSource>();
   private videoTextures = new Map<string, THREE.Texture>();
   private needsRecompile = false;
+  private activeRendererId: string | null = null;
 
   constructor(canvas: HTMLCanvasElement, callbacks: HostCallbacks) {
     this.compositor = new Compositor(canvas);
@@ -51,7 +50,6 @@ export class RealtimeHost {
     this.mouse.attach(document.body);
     this.state = 'playing';
     this.callbacks.onStateChange?.('playing');
-    this.lastPreviewTime = 0;
 
     const frame = (now: DOMHighResTimeStamp): void => {
       if (this.state === 'stopped') return;
@@ -93,6 +91,10 @@ export class RealtimeHost {
     this.edges = edges;
     this.needsRecompile = true;
     void this.reconcileVideoSources(nodes);
+  }
+
+  setActiveRenderer(id: string | null): void {
+    this.activeRendererId = id;
   }
 
   async addVideoSource(nodeId: string, config: VideoSourceConfig): Promise<void> {
@@ -180,12 +182,11 @@ export class RealtimeHost {
 
     this.compositor.render(inputs);
 
-    // Throttled readback for preview thumbnails
-    if (now - this.lastPreviewTime >= this.previewInterval) {
-      this.lastPreviewTime = now;
-      if (this.callbacks.onOutput) {
-        this.compositor.readOutputs(this.callbacks.onOutput);
-      }
+    const rendererId = this.activeRendererId
+      ?? this.nodes.find((node) => node.data.type === 'renderer' && node.data.expanded !== false)?.id
+      ?? null;
+    if (rendererId) {
+      this.compositor.renderRendererToScreen(rendererId);
     }
 
     this.callbacks.onFrame?.(ts);

@@ -13,7 +13,6 @@ type RendererNodeType = Node<ShaderNodeData>;
 export function RendererNode({ id, data, selected }: NodeProps<RendererNodeType>) {
   const edges = useGraphStore((s) => s.edges);
   const nodeErrors = useGraphStore((s) => s.nodeErrors);
-  const outputPreviews = useGraphStore((s) => s.outputPreviews);
   const error = nodeErrors[id];
 
   const inputPort = data.inputs[0];
@@ -21,8 +20,8 @@ export function RendererNode({ id, data, selected }: NodeProps<RendererNodeType>
   const accent = error ? '#ff3b30' : !connected ? '#8e8e93' : ACCENT;
 
   const expanded = data.expanded !== false;
-  const rw = data.rendererWidth ?? 512;
-  const rh = data.rendererHeight ?? 512;
+  const rw = data.resolvedWidth ?? 512;
+  const rh = data.resolvedHeight ?? 512;
   const aspect = rh / rw;
   const previewW = Math.min(rw, MAX_PREVIEW_W);
   const previewH = Math.round(previewW * aspect);
@@ -86,21 +85,11 @@ export function RendererNode({ id, data, selected }: NodeProps<RendererNodeType>
           <div className="px-2 py-2">
             {/* Preview placeholder or actual preview */}
             <div
+              id={`renderer-canvas-mount-${id}`}
               onClick={handlePreviewClick}
-              className="cursor-pointer rounded border border-[#e8e8ed] overflow-hidden"
+              className="cursor-pointer rounded border border-[#e8e8ed] overflow-hidden bg-[#1d1d1f]"
               style={{ width: previewW, height: previewH }}
-            >
-              {outputPreviews[id] ? (
-                <img
-                  src={outputPreviews[id]}
-                  alt="preview"
-                  className="w-full h-full object-contain"
-                  style={{ imageRendering: 'pixelated' }}
-                />
-              ) : (
-                <div className="w-full h-full bg-[#1d1d1f]" />
-              )}
-            </div>
+            />
             {/* Resolution */}
             <div className="text-[9px] text-[#aeaeb2] text-center mt-1">
               {rw}×{rh}

@@ -429,8 +429,6 @@ export const useGraphStore = create<GraphState>()(
             inputs: [{ id: 'input_inputTexture', label: 'inputTexture', dataType: 'sampler2D', direction: 'input' }],
             outputs: [],
             uniforms: {},
-            rendererWidth: 512,
-            rendererHeight: 512,
             expanded: true,
           },
         };

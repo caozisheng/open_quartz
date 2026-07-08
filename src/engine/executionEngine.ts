@@ -27,6 +27,7 @@ export interface ExecutionPlan {
   textureSources: Map<string, TextureSource>;
   outputNodes: string[];
   builtinPorts: Map<string, Set<string>>;
+  resolutionUniforms: Map<string, Float32Array>;
   preambleLines: Map<string, number>;
   defaultW: number;
   defaultH: number;
@@ -65,6 +66,7 @@ export class ExecutionEngine {
     const scalarBindings = new Map<string, Map<string, unknown>>();
     const selfUniforms = new Map<string, Record<string, unknown>>();
     const builtinPorts = new Map<string, Set<string>>();
+    const resolutionUniforms = new Map<string, Float32Array>();
     const preambleLines = new Map<string, number>();
 
     let defaultW = 512;
@@ -90,9 +92,6 @@ export class ExecutionEngine {
         const oh = node.data.autoSize === false ? ((node.data.height as number) || defaultH) : defaultH;
         maxW = Math.max(maxW, ow);
         maxH = Math.max(maxH, oh);
-      } else if (node.data.type === 'renderer') {
-        maxW = Math.max(maxW, node.data.rendererWidth ?? defaultW);
-        maxH = Math.max(maxH, node.data.rendererHeight ?? defaultH);
       }
     }
     this.renderer.setSize(maxW, maxH);
@@ -144,13 +143,22 @@ export class ExecutionEngine {
         onNodeError?.(nodeId, `Unconnected input${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`);
       }
 
+      if (node.data.type === 'renderer') {
+        upstreamSamplerBindings.set(nodeId, upstreamMap);
+        const sourceId = upstreamMap.values().next().value;
+        if (sourceId) {
+          const sourceTarget = targets.get(sourceId);
+          const sourceNode = nodeMap.get(sourceId);
+          const w = sourceTarget?.width ?? sourceNode?.data.imageWidth ?? sourceNode?.data.resolvedWidth;
+          const h = sourceTarget?.height ?? sourceNode?.data.imageHeight ?? sourceNode?.data.resolvedHeight;
+          if (w && h) onOutputSize?.(nodeId, w, h);
+        }
+        continue;
+      }
+
       try {
-        const outW = node.data.type === 'renderer'
-          ? (node.data.rendererWidth ?? defaultW)
-          : (node.data.autoSize === false ? ((node.data.width as number) || defaultW) : defaultW);
-        const outH = node.data.type === 'renderer'
-          ? (node.data.rendererHeight ?? defaultH)
-          : (node.data.autoSize === false ? ((node.data.height as number) || defaultH) : defaultH);
+        const outW = node.data.autoSize === false ? ((node.data.width as number) || defaultW) : defaultW;
+        const outH = node.data.autoSize === false ? ((node.data.height as number) || defaultH) : defaultH;
         const outFormat = node.data.outFormat;
         const isFloat = outFormat === 'rgba32f' || outFormat === 'rg32f' || outFormat === 'r32f';
         const target = this.renderer.createTarget(nodeId, outW, outH, isFloat, outFormat);
@@ -159,11 +167,8 @@ export class ExecutionEngine {
         }
         targets.set(nodeId, target);
         onOutputSize?.(nodeId, outW, outH);
+        resolutionUniforms.set(nodeId, new Float32Array([outW, outH, 1]));
 
-        if (node.data.type === 'renderer') {
-          upstreamSamplerBindings.set(nodeId, upstreamMap);
-          continue;
-        }
 
         const compiled = compileNodeShader(node.data.shaderCode, node.data.inputs, upstreamMap);
         const material = compiled.material;
@@ -204,6 +209,7 @@ export class ExecutionEngine {
       textureSources,
       outputNodes,
       builtinPorts,
+      resolutionUniforms,
       preambleLines,
       defaultW,
       defaultH,
@@ -217,21 +223,10 @@ export class ExecutionEngine {
       const node = plan.nodeMap.get(nodeId);
       if (!node || !isRenderableNode(node)) continue;
 
+      if (node.data.type === 'renderer') continue;
+
       const target = plan.targets.get(nodeId);
       if (!target) continue;
-
-      if (node.data.type === 'renderer') {
-        const rendererInput = plan.upstreamSamplerBindings.get(nodeId)?.values().next().value;
-        if (!rendererInput) continue;
-        const videoTex = builtins.videoTextures?.get(rendererInput);
-        const src = plan.textureSources.get(rendererInput);
-        const tex = videoTex ?? (src?.kind === 'fbo' ? src.target.texture : src?.texture);
-        if (tex) {
-          this.renderer.renderSampler2DInput(tex, target);
-          plan.textureSources.set(nodeId, { kind: 'fbo', target });
-        }
-        continue;
-      }
 
       const material = plan.materials.get(nodeId);
       if (!material) continue;
@@ -268,7 +263,7 @@ export class ExecutionEngine {
         if (builtin.has('iFrame')) setUniform(material, 'iFrame', builtins.frame);
         if (builtin.has('iDate')) setUniform(material, 'iDate', builtins.date);
         if (builtin.has('iMouse')) setUniform(material, 'iMouse', builtins.mouse);
-        if (builtin.has('iResolution')) setUniform(material, 'iResolution', builtins.resolution);
+        if (builtin.has('iResolution')) setUniform(material, 'iResolution', plan.resolutionUniforms.get(nodeId) ?? builtins.resolution);
       }
 
       this.renderer.renderWithMaterial(material, target);
@@ -279,9 +274,48 @@ export class ExecutionEngine {
   readOutputs(plan: ExecutionPlan, onOutput: (nodeId: string, dataUrl: string) => void): void {
     if (!this.renderer) return;
     for (const nodeId of plan.outputNodes) {
+      const node = plan.nodeMap.get(nodeId);
+      if (node?.data.type === 'renderer') {
+        const sourceId = plan.upstreamSamplerBindings.get(nodeId)?.values().next().value;
+        if (!sourceId) continue;
+        const src = plan.textureSources.get(sourceId);
+        if (src?.kind === 'fbo') {
+          onOutput(nodeId, this.renderer.readTargetToDataURL(src.target, 512));
+          continue;
+        }
+        if (src?.kind === 'image') {
+          const sourceNode = plan.nodeMap.get(sourceId);
+          const w = sourceNode?.data.imageWidth ?? sourceNode?.data.resolvedWidth ?? plan.defaultW;
+          const h = sourceNode?.data.imageHeight ?? sourceNode?.data.resolvedHeight ?? plan.defaultH;
+          let target = plan.targets.get(nodeId);
+          if (!target) {
+            target = this.renderer.createTarget(nodeId, w, h);
+            plan.targets.set(nodeId, target);
+          }
+          this.renderer.renderSampler2DInput(src.texture, target);
+          onOutput(nodeId, this.renderer.readTargetToDataURL(target, 512));
+        }
+        continue;
+      }
       const target = plan.targets.get(nodeId);
       if (!target) continue;
-      onOutput(nodeId, this.renderer.readTargetToDataURL(target));
+      onOutput(nodeId, this.renderer.readTargetToDataURL(target, 512));
+    }
+  }
+
+  renderRendererToScreen(plan: ExecutionPlan, rendererNodeId: string): void {
+    if (!this.renderer) return;
+    const node = plan.nodeMap.get(rendererNodeId);
+    if (node?.data.type !== 'renderer') return;
+    const sourceId = plan.upstreamSamplerBindings.get(rendererNodeId)?.values().next().value;
+    if (!sourceId) return;
+    const src = plan.textureSources.get(sourceId);
+    if (src?.kind === 'fbo') {
+      this.renderer.renderToScreen(src.target.texture);
+      return;
+    }
+    if (src?.kind === 'image') {
+      this.renderer.renderToScreen(src.texture);
     }
   }
 
@@ -453,6 +487,18 @@ export class ExecutionEngine {
           }
         }
 
+        if (node.data.type === 'renderer') {
+          const sourceId = upstreamMap.values().next().value;
+          if (sourceId) {
+            const src = textures.get(sourceId);
+            if (src?.kind === 'fbo') {
+              onOutput?.(nodeId, this.renderer.readTargetToDataURL(src.target));
+              onOutputSize?.(nodeId, src.target.width, src.target.height);
+            }
+          }
+          continue;
+        }
+
         let material: THREE.ShaderMaterial;
         let upstreamSamplers: Map<string, string>;
         let preambleLines = 0;
@@ -485,8 +531,8 @@ export class ExecutionEngine {
             if (!upstreamMap.has(key)) material.uniforms[key] = { value: normalizeUniformValue(val) };
           }
 
-          const outW = node.data.type === 'renderer' ? (node.data.rendererWidth ?? defaultW) : (node.data.autoSize === false ? ((node.data.width as number) || defaultW) : defaultW);
-          const outH = node.data.type === 'renderer' ? (node.data.rendererHeight ?? defaultH) : (node.data.autoSize === false ? ((node.data.height as number) || defaultH) : defaultH);
+          const outW = node.data.autoSize === false ? ((node.data.width as number) || defaultW) : defaultW;
+          const outH = node.data.autoSize === false ? ((node.data.height as number) || defaultH) : defaultH;
           const outFormat = node.data.outFormat;
           const isFloat = outFormat === 'rgba32f' || outFormat === 'rg32f' || outFormat === 'r32f';
           const target = this.renderer.createTarget(nodeId, outW, outH, isFloat, outFormat);

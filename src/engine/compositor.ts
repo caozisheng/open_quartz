@@ -41,6 +41,11 @@ export class Compositor {
     this.engine.readOutputs(this.plan, onOutput);
   }
 
+  renderRendererToScreen(rendererNodeId: string): void {
+    if (!this.plan) return;
+    this.engine.renderRendererToScreen(this.plan, rendererNodeId);
+  }
+
   dispose(): void {
     this.engine.stop();
     this.plan = null;

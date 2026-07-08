@@ -63,8 +63,6 @@ export interface ShaderNodeData {
   onnxScoreThreshold?: number;
   onnxIouThreshold?: number;
   onnxTargetSize?: number;
-  rendererWidth?: number;
-  rendererHeight?: number;
   expanded?: boolean;
   videoSourceType?: 'camera' | 'file';
   videoUrl?: string;

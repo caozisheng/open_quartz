@@ -10,6 +10,23 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hostRef = useRef<RealtimeHost | null>(null);
 
+  const mountRendererCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const state = useGraphStore.getState();
+    const rendererId = state.activeRendererId
+      ?? state.nodes.find((node) => node.data.type === 'renderer' && node.data.expanded !== false)?.id;
+    if (!rendererId) return;
+    const mount = document.getElementById(`renderer-canvas-mount-${rendererId}`);
+    if (!mount || canvas.parentElement === mount) return;
+    canvas.className = '';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    mount.replaceChildren(canvas);
+    hostRef.current?.setActiveRenderer(rendererId);
+  };
+
 
 
   // Real-time loop
@@ -47,6 +64,7 @@ export default function App() {
         });
         hostRef.current = host;
         host.play(state.nodes, state.edges);
+        requestAnimationFrame(mountRendererCanvas);
       }
 
       // Pause
@@ -56,6 +74,7 @@ export default function App() {
       // Resume
       if (state.loopState === 'playing' && prev.loopState === 'paused') {
         hostRef.current?.resume();
+        requestAnimationFrame(mountRendererCanvas);
       }
 
       // Stop
@@ -68,6 +87,12 @@ export default function App() {
       if (state.loopState === 'playing' &&
           (state.nodes !== prev.nodes || state.edges !== prev.edges)) {
         hostRef.current?.updateGraph(state.nodes, state.edges);
+        requestAnimationFrame(mountRendererCanvas);
+      }
+
+      if (state.activeRendererId !== prev.activeRendererId) {
+        hostRef.current?.setActiveRenderer(state.activeRendererId);
+        requestAnimationFrame(mountRendererCanvas);
       }
     });
     return () => unsub();

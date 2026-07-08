@@ -28,6 +28,9 @@ export class WebGLRenderer {
   private quad: THREE.Mesh<THREE.PlaneGeometry, THREE.Material>;
   private targets = new Map<string, THREE.WebGLRenderTarget>();
   private imageTextures = new Map<string, THREE.Texture>();
+  private previewTargets = new Map<string, THREE.WebGLRenderTarget>();
+  private blitMaterial: THREE.MeshBasicMaterial;
+
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: false });
@@ -38,6 +41,7 @@ export class WebGLRenderer {
 
     const geo = new THREE.PlaneGeometry(2, 2);
     const mat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    this.blitMaterial = new THREE.MeshBasicMaterial({ map: null });
     this.quad = new THREE.Mesh(geo, mat);
     this.scene.add(this.quad);
   }
@@ -51,7 +55,7 @@ export class WebGLRenderer {
   }
 
   setSize(width: number, height: number) {
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
   }
 
   createTarget(id: string, width: number, height: number, float = false, fbFormat?: FramebufferFormat) {
@@ -199,29 +203,60 @@ export class WebGLRenderer {
     material: THREE.Material,
     target?: THREE.WebGLRenderTarget,
   ) {
-    this.quad.material.dispose();
+    if (target && materialHasTexture(material, target.texture)) {
+      console.warn('Skipped render pass: material samples its own render target texture');
+      return;
+    }
+
     this.quad.material = material;
     this.renderer.setRenderTarget(target ?? null);
     this.renderer.render(this.scene, this.camera);
   }
 
   renderSampler2DInput(texture: THREE.Texture, target?: THREE.WebGLRenderTarget) {
-    const mat = new THREE.MeshBasicMaterial({ map: texture });
-    this.renderWithMaterial(mat, target);
+    this.blitMaterial.map = texture;
+    this.blitMaterial.needsUpdate = true;
+    this.renderWithMaterial(this.blitMaterial, target);
   }
 
   renderToScreen(texture: THREE.Texture) {
-    const mat = new THREE.MeshBasicMaterial({ map: texture });
-    this.quad.material.dispose();
-    this.quad.material = mat;
+    const canvas = this.renderer.domElement;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w;
+    canvas.height = h;
+    this.renderer.setViewport(0, 0, w, h);
     this.renderer.setRenderTarget(null);
+    this.blitMaterial.map = texture;
+    this.blitMaterial.needsUpdate = true;
+    this.quad.material = this.blitMaterial;
     this.renderer.render(this.scene, this.camera);
   }
 
-  readTargetToDataURL(target: THREE.WebGLRenderTarget): string {
-    const w = target.width;
-    const h = target.height;
-    const isFloat = target.texture.type !== THREE.UnsignedByteType;
+  readTargetToDataURL(target: THREE.WebGLRenderTarget, maxDimension?: number): string {
+    let readTarget = target;
+    if (maxDimension && maxDimension > 0 && (target.width > maxDimension || target.height > maxDimension)) {
+      const scale = maxDimension / Math.max(target.width, target.height);
+      const w = Math.max(1, Math.round(target.width * scale));
+      const h = Math.max(1, Math.round(target.height * scale));
+      const key = `${w}x${h}`;
+      let previewTarget = this.previewTargets.get(key);
+      if (!previewTarget) {
+        previewTarget = new THREE.WebGLRenderTarget(w, h, {
+          minFilter: THREE.LinearFilter,
+          magFilter: THREE.LinearFilter,
+          format: THREE.RGBAFormat,
+          type: THREE.UnsignedByteType,
+        });
+        this.previewTargets.set(key, previewTarget);
+      }
+      this.renderSampler2DInput(target.texture, previewTarget);
+      readTarget = previewTarget;
+    }
+
+    const w = readTarget.width;
+    const h = readTarget.height;
+    const isFloat = readTarget.texture.type !== THREE.UnsignedByteType;
 
     const canvas = document.createElement('canvas');
     canvas.width = w;
@@ -231,7 +266,7 @@ export class WebGLRenderer {
 
     if (isFloat) {
       const floats = new Float32Array(w * h * 4);
-      this.renderer.readRenderTargetPixels(target, 0, 0, w, h, floats);
+      this.renderer.readRenderTargetPixels(readTarget, 0, 0, w, h, floats);
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const srcIdx = (y * w + x) * 4;
@@ -244,7 +279,7 @@ export class WebGLRenderer {
       }
     } else {
       const pixels = new Uint8Array(w * h * 4);
-      this.renderer.readRenderTargetPixels(target, 0, 0, w, h, pixels);
+      this.renderer.readRenderTargetPixels(readTarget, 0, 0, w, h, pixels);
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const srcIdx = (y * w + x) * 4;
@@ -317,9 +352,21 @@ export class WebGLRenderer {
 
   dispose() {
     for (const t of this.targets.values()) t.dispose();
+    for (const t of this.previewTargets.values()) t.dispose();
     for (const t of this.imageTextures.values()) t.dispose();
+    this.blitMaterial.dispose();
     this.targets.clear();
+    this.previewTargets.clear();
     this.imageTextures.clear();
     this.renderer.dispose();
   }
+}
+
+function materialHasTexture(material: THREE.Material, texture: THREE.Texture): boolean {
+  const uniforms = (material as THREE.ShaderMaterial).uniforms;
+  if (!uniforms) return false;
+  for (const uniform of Object.values(uniforms)) {
+    if (uniform?.value === texture) return true;
+  }
+  return false;
 }
