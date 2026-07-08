@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0b] — 2026-07-08
+
+### Fixes
+
+- **Image input no longer wastes an FBO** — image input nodes now pass their `THREE.Texture` directly to downstream shaders instead of blitting through an intermediate FBO. Eliminates one full-screen copy per image input per execution.
+- **Shader output size is self-contained** — a shader node's configured width/height now only determines its own render target resolution. Removed the reverse propagation that leaked downstream shader dimensions into upstream input nodes.
+- **Framebuffer input uses its own dimensions** — raw/framebuffer input nodes now create their FBO at the declared `fbWidth × fbHeight` instead of a propagated size.
+
 ## [0.5.0b] — 2026-07-08
 
 ### Breaking Changes

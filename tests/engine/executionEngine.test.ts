@@ -182,7 +182,10 @@ describe('ExecutionEngine', () => {
 
     expect(mockRendererInstance.loadImageTexture).toHaveBeenCalledWith('input_1', 'data:image/png;base64,AAAA');
     expect(mockRendererInstance.applyTextureSampling).toHaveBeenCalled();
-    expect(onOutput).toHaveBeenCalledWith('input_1', 'data:image/png;base64,mock');
+    // Image node passes through its dataUrl directly — no FBO blit
+    expect(mockRendererInstance.createTarget).not.toHaveBeenCalled();
+    expect(mockRendererInstance.renderSampler2DInput).not.toHaveBeenCalled();
+    expect(onOutput).toHaveBeenCalledWith('input_1', 'data:image/png;base64,AAAA');
   });
 
   it('run() processes input nodes in framebuffer mode', async () => {

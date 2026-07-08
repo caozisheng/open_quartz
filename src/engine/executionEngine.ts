@@ -62,44 +62,18 @@ export class ExecutionEngine {
       }
     }
 
-    // Seed resolution from all shader/constant nodes that have explicit width/height configured
-    const nodeSize = new Map<string, { w: number; h: number }>();
+    // Renderer canvas sized to the largest shader/constant output
+    let maxW = defaultW;
+    let maxH = defaultH;
     for (const node of nodes) {
       if (node.data.type === 'shader' || node.data.type === 'constant') {
         const ow = (node.data.width as number) || defaultW;
         const oh = (node.data.height as number) || defaultH;
-        nodeSize.set(node.id, { w: ow, h: oh });
-      }
-    }
-    // Walk topo order in reverse (outputs first) to propagate sizes upstream
-    for (let i = order.length - 1; i >= 0; i--) {
-      const nid = order[i];
-      const size = nodeSize.get(nid);
-      if (!size) continue;
-      // Propagate to all upstream nodes
-      for (const edge of edges) {
-        if (edge.target === nid) {
-          const existing = nodeSize.get(edge.source);
-          if (!existing) {
-            nodeSize.set(edge.source, { w: size.w, h: size.h });
-          } else {
-            // Multiple downstream outputs: use the max dimensions
-            nodeSize.set(edge.source, {
-              w: Math.max(existing.w, size.w),
-              h: Math.max(existing.h, size.h),
-            });
-          }
-        }
+        if (ow > maxW) maxW = ow;
+        if (oh > maxH) maxH = oh;
       }
     }
 
-    // Renderer canvas sized to the largest output
-    let maxW = defaultW;
-    let maxH = defaultH;
-    for (const { w, h } of nodeSize.values()) {
-      if (w > maxW) maxW = w;
-      if (h > maxH) maxH = h;
-    }
     this.renderer.setSize(maxW, maxH);
 
     for (const nodeId of order) {
@@ -125,8 +99,7 @@ export class ExecutionEngine {
               node.data.fbStride,
             );
             this.renderer.applyTextureSampling(tex, node.data.texFilter as TextureFilter, node.data.texWrap as TextureWrap);
-            const { w: tw, h: th } = nodeSize.get(nodeId) ?? { w: defaultW, h: defaultH };
-            const target = this.renderer.createTarget(`raw_${nodeId}`, tw, th, true);
+            const target = this.renderer.createTarget(`raw_${nodeId}`, node.data.fbWidth, node.data.fbHeight, true);
             this.renderer.renderSampler2DInput(tex, target);
             textures.set(nodeId, { kind: 'fbo', target });
             onOutput?.(nodeId, this.renderer.readTargetToDataURL(target));
@@ -140,12 +113,7 @@ export class ExecutionEngine {
             const tex = await this.renderer.loadImageTexture(nodeId, node.data.imageDataUrl);
             this.renderer.applyTextureSampling(tex, node.data.texFilter as TextureFilter, node.data.texWrap as TextureWrap);
             textures.set(nodeId, { kind: 'image', texture: tex });
-
-            const { w: tw, h: th } = nodeSize.get(nodeId) ?? { w: defaultW, h: defaultH };
-            const target = this.renderer.createTarget(`img_${nodeId}`, tw, th, true);
-            this.renderer.renderSampler2DInput(tex, target);
-            textures.set(nodeId, { kind: 'fbo', target });
-            onOutput?.(nodeId, this.renderer.readTargetToDataURL(target));
+            onOutput?.(nodeId, node.data.imageDataUrl);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             console.warn(`Image load error for node ${nodeId}:`, msg);
@@ -217,9 +185,9 @@ export class ExecutionEngine {
             }
           }
 
-          // Use node's configured size, or propagated size from downstream, or defaults
-          const outW = (node.data.width as number) || nodeSize.get(nodeId)?.w || defaultW;
-          const outH = (node.data.height as number) || nodeSize.get(nodeId)?.h || defaultH;
+          // Use node's configured size or the default derived from input images
+          const outW = (node.data.width as number) || defaultW;
+          const outH = (node.data.height as number) || defaultH;
           const outFormat = node.data.outFormat;
           const isFloat = outFormat === 'rgba32f' || outFormat === 'rg32f' || outFormat === 'r32f';
           const target = this.renderer.createTarget(nodeId, outW, outH, isFloat, outFormat);
