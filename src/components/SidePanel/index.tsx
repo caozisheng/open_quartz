@@ -71,8 +71,9 @@ export function SidePanel() {
       if (!data.rawDataUrl || !data.fbWidth || !data.fbHeight) return null;
       return generateRawPreview(data.rawDataUrl, (data.fbFormat ?? 'rgba8') as FramebufferFormat, data.fbWidth, data.fbHeight, data.fbStride);
     }
+    if (data.inputMode === 'video') return data.videoUrl ?? null;
     return data.imageDataUrl ?? null;
-  }, [data, isSampler2D, isFramebuffer, data?.rawDataUrl, data?.fbFormat, data?.fbWidth, data?.fbHeight, data?.fbStride, data?.imageDataUrl]);
+  }, [data, isSampler2D, isFramebuffer, data?.rawDataUrl, data?.fbFormat, data?.fbWidth, data?.fbHeight, data?.fbStride, data?.imageDataUrl, data?.videoUrl, data?.inputMode]);
 
   if (!selectedNode || !data) return null;
 
@@ -277,20 +278,37 @@ export function SidePanel() {
 
       {/* Renderer config */}
       {data.type === 'renderer' && (
-        <div className="px-4 py-3 border-t border-[#e8e8ed] flex-shrink-0">
-          <div className="text-[10px] text-[#86868b] font-medium mb-2">RENDERER CONFIG</div>
-          <div className="text-[11px] text-[#86868b] mb-2">
-            Size follows upstream output{data.resolvedWidth && data.resolvedHeight ? `: ${data.resolvedWidth} × ${data.resolvedHeight}` : ''}
+        <>
+          <div className="px-4 py-3 border-t border-[#e8e8ed] flex-shrink-0">
+            <div className="text-[10px] text-[#86868b] font-medium mb-2">RENDERER CONFIG</div>
+            <div className="text-[11px] text-[#86868b] mb-2">
+              Size follows upstream output{data.resolvedWidth && data.resolvedHeight ? `: ${data.resolvedWidth} × ${data.resolvedHeight}` : ''}
+            </div>
+            <label className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
+              <input
+                type="checkbox"
+                checked={data.expanded !== false}
+                onChange={(e) => updateNodeData(selectedNodeId!, { expanded: e.target.checked })}
+              />
+              In-place preview
+            </label>
           </div>
-          <label className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
-            <input
-              type="checkbox"
-              checked={data.expanded !== false}
-              onChange={(e) => updateNodeData(selectedNodeId!, { expanded: e.target.checked })}
-            />
-            Expanded preview
-          </label>
-        </div>
+
+          {/* Panel preview when not in-place */}
+          {data.expanded === false && (
+            <div className="flex-1 flex flex-col min-h-0 border-t border-[#e8e8ed]">
+              <div className="px-4 py-1.5 text-[11px] text-[#86868b] font-medium">
+                PREVIEW
+              </div>
+              <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
+                <div
+                  id={`renderer-canvas-mount-${selectedNodeId}`}
+                  className="w-full h-full rounded border border-[#d2d2d7] bg-[#1d1d1f]"
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Image dimensions (read-only) */}
@@ -440,15 +458,27 @@ export function SidePanel() {
           </div>
           <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
             {inputPreviewSrc ? (
-              <img
-                src={inputPreviewSrc}
-                alt="preview"
-                onClick={() => setLightboxSrc(inputPreviewSrc)}
-                className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity"
-              />
+              data.inputMode === 'video' ? (
+                <video
+                  src={inputPreviewSrc}
+                  muted
+                  loop
+                  playsInline
+                  autoPlay
+                  onClick={() => setLightboxSrc(inputPreviewSrc)}
+                  className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity"
+                />
+              ) : (
+                <img
+                  src={inputPreviewSrc}
+                  alt="preview"
+                  onClick={() => setLightboxSrc(inputPreviewSrc)}
+                  className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity"
+                />
+              )
             ) : (
               <span className="text-[12px] text-[#aeaeb2]">
-                {isFramebuffer ? 'Load file and set width/height' : 'Load an image'}
+                {isFramebuffer ? 'Load file and set width/height' : data.inputMode === 'video' ? 'Load a video' : 'Load an image'}
               </span>
             )}
           </div>

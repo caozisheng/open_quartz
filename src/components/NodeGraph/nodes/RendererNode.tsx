@@ -13,6 +13,8 @@ type RendererNodeType = Node<ShaderNodeData>;
 export function RendererNode({ id, data, selected }: NodeProps<RendererNodeType>) {
   const edges = useGraphStore((s) => s.edges);
   const nodeErrors = useGraphStore((s) => s.nodeErrors);
+  const loopState = useGraphStore((s) => s.loopState);
+  const isPlaying = loopState !== 'stopped';
   const error = nodeErrors[id];
 
   const inputPort = data.inputs[0];
@@ -79,7 +81,7 @@ export function RendererNode({ id, data, selected }: NodeProps<RendererNodeType>
       )}
 
       {/* Expanded: preview area + resolution */}
-      {expanded && (
+      {expanded && isPlaying && (
         <>
           <div className="mx-3 border-t border-[#f0f0f0]" />
           <div className="px-2 py-2">
