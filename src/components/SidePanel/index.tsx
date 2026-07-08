@@ -305,13 +305,18 @@ export function SidePanel() {
           {/* Panel preview when not in-place */}
           {data.expanded === false && (
             <div className="flex-1 flex flex-col min-h-0 border-t border-[#e8e8ed]">
-              <div className="px-4 py-1.5 text-[11px] text-[#86868b] font-medium">
-                PREVIEW
+              <div className="px-4 py-1.5 flex items-center justify-between">
+                <span className="text-[11px] text-[#86868b] font-medium">PREVIEW</span>
+                <button
+                  onClick={() => setLightboxSrc(`renderer:${selectedNodeId}`)}
+                  className="text-[10px] text-[#007aff] hover:text-[#0066d6] font-medium cursor-default"
+                >
+                  FULLSCREEN
+                </button>
               </div>
               <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
                 <div
-                  onClick={() => setLightboxSrc(`renderer:${selectedNodeId}`)}
-                  className="cursor-pointer rounded border border-[#e8e8ed] overflow-hidden bg-[#1d1d1f]"
+                  className="rounded border border-[#e8e8ed] overflow-hidden bg-[#1d1d1f]"
                   style={{
                     width: '100%',
                     aspectRatio: `${data.resolvedWidth ?? 16} / ${data.resolvedHeight ?? 9}`,
