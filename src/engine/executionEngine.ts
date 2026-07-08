@@ -325,6 +325,29 @@ export class ExecutionEngine {
     }
   }
 
+  captureRendererScreenshot(plan: ExecutionPlan, rendererNodeId: string): string | null {
+    if (!this.renderer) return null;
+    const sourceId = plan.upstreamSamplerBindings.get(rendererNodeId)?.values().next().value;
+    if (!sourceId) return null;
+    const src = plan.textureSources.get(sourceId);
+    if (src?.kind === 'fbo') {
+      return this.renderer.readTargetToDataURL(src.target);
+    }
+    if (src?.kind === 'image') {
+      const sourceNode = plan.nodeMap.get(sourceId);
+      const w = sourceNode?.data.imageWidth ?? sourceNode?.data.resolvedWidth ?? plan.defaultW;
+      const h = sourceNode?.data.imageHeight ?? sourceNode?.data.resolvedHeight ?? plan.defaultH;
+      let target = plan.targets.get(rendererNodeId);
+      if (!target) {
+        target = this.renderer.createTarget(rendererNodeId, w, h);
+        plan.targets.set(rendererNodeId, target);
+      }
+      this.renderer.renderSampler2DInput(src.texture, target);
+      return this.renderer.readTargetToDataURL(target);
+    }
+    return null;
+  }
+
   async run(
     nodes: Node<ShaderNodeData>[],
     edges: Edge[],

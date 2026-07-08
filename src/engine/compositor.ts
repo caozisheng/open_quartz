@@ -46,6 +46,11 @@ export class Compositor {
     this.engine.renderRendererToScreen(this.plan, rendererNodeId);
   }
 
+  captureScreenshot(rendererNodeId: string): string | null {
+    if (!this.plan) return null;
+    return this.engine.captureRendererScreenshot(this.plan, rendererNodeId);
+  }
+
   dispose(): void {
     this.engine.stop();
     this.plan = null;

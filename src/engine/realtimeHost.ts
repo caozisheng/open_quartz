@@ -99,6 +99,10 @@ export class RealtimeHost {
     this.activeRendererId = id;
   }
 
+  captureScreenshot(rendererId: string): string | null {
+    return this.compositor.captureScreenshot(rendererId);
+  }
+
   async addVideoSource(nodeId: string, config: VideoSourceConfig): Promise<void> {
     this.removeVideoSource(nodeId);
     const source = new VideoSource(config);

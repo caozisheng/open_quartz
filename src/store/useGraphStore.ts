@@ -65,6 +65,8 @@ interface GraphState {
   clearNodeErrors: () => void;
   loadGraph: (nodes: Node<ShaderNodeData>[], edges: Edge[]) => void;
   clearGraph: () => void;
+  captureScreenshot: ((rendererId: string) => string | null) | null;
+  setCaptureScreenshot: (fn: ((rendererId: string) => string | null) | null) => void;
 }
 
 let nodeCounter = 0;
@@ -176,6 +178,7 @@ export const useGraphStore = create<GraphState>()(
       currentTime: 0,
       currentFrame: 0,
       activeRendererId: null,
+      captureScreenshot: null,
 
       pushHistory: saveSnapshot,
 
@@ -441,6 +444,7 @@ export const useGraphStore = create<GraphState>()(
         state.currentTime = 0;
         state.currentFrame = 0;
       }),
+      setCaptureScreenshot: (fn) => set((state) => { state.captureScreenshot = fn as never; }),
     };
   }),
 );

@@ -2,7 +2,7 @@ import { useGraphStore } from '../../store/useGraphStore';
 import { ShaderEditor } from './ShaderEditor';
 import { PortInspector } from './PortInspector';
 import { OnnxPanel } from './OnnxPanel';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ImageLightbox } from '../ImageLightbox';
 import type { FramebufferFormat, TextureFilter, TextureWrap } from '../../types';
 import { generateRawPreview } from '../../utils/rawPreview';
@@ -34,13 +34,6 @@ export function SidePanel() {
   const nodeError = selectedNodeId ? nodeErrors[selectedNodeId] : undefined;
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (lightboxSrc) {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent('renderer-remount'));
-      });
-    }
-  }, [lightboxSrc]);
 
   const handleLabelChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -308,7 +301,11 @@ export function SidePanel() {
               <div className="px-4 py-1.5 flex items-center justify-between">
                 <span className="text-[11px] text-[#86868b] font-medium">PREVIEW</span>
                 <button
-                  onClick={() => setLightboxSrc(`renderer:${selectedNodeId}`)}
+                  onClick={() => {
+                    if (!selectedNodeId) return;
+                    setLightboxSrc(`renderer:${selectedNodeId}`);
+                    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('renderer-remount')));
+                  }}
                   className="text-[10px] text-[#007aff] hover:text-[#0066d6] font-medium cursor-default"
                 >
                   FULLSCREEN
@@ -511,18 +508,59 @@ export function SidePanel() {
       {lightboxSrc && !lightboxSrc.startsWith('renderer:') && (
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
-      {lightboxSrc?.startsWith('renderer:') && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-pointer"
-          onClick={() => setLightboxSrc(null)}
-        >
+      {lightboxSrc?.startsWith('renderer:') && (() => {
+        const rid = lightboxSrc.slice('renderer:'.length);
+        const rNode = nodes.find((n) => n.id === rid);
+        const rw = rNode?.data.resolvedWidth ?? 16;
+        const rh = rNode?.data.resolvedHeight ?? 9;
+        return (
           <div
-            id={`renderer-fullscreen-mount-${lightboxSrc.slice('renderer:'.length)}`}
-            className="w-[90vw] h-[90vh]"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+            className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
+            onClick={() => {
+              setLightboxSrc(null);
+              requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('renderer-remount')));
+            }}
+          >
+            <div className="absolute top-4 right-4 flex items-center gap-3 z-10">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const capture = useGraphStore.getState().captureScreenshot;
+                  const dataUrl = capture?.(rid);
+                  if (!dataUrl) return;
+                  const a = document.createElement('a');
+                  a.href = dataUrl;
+                  a.download = `renderer-${rid}.png`;
+                  a.click();
+                }}
+                className="text-[11px] text-white/80 hover:text-white font-medium px-3 py-1 rounded bg-white/10 hover:bg-white/20"
+              >
+                SAVE
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxSrc(null);
+                  requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('renderer-remount')));
+                }}
+                className="text-[11px] text-white/80 hover:text-white font-medium px-3 py-1 rounded bg-white/10 hover:bg-white/20"
+              >
+                CLOSE
+              </button>
+            </div>
+            <div
+              id={`renderer-fullscreen-mount-${rid}`}
+              className="rounded overflow-hidden"
+              style={{
+                width: '90vw',
+                maxHeight: '85vh',
+                aspectRatio: `${rw} / ${rh}`,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        );
+      })()}
     </aside>
   );
 }

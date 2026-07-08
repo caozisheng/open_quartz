@@ -82,6 +82,7 @@ export default function App() {
             },
           });
         }
+        useGraphStore.getState().setCaptureScreenshot((id) => hostRef.current?.captureScreenshot(id) ?? null);
         // Use setTimeout to ensure DOM has updated after state change
         setTimeout(() => {
           mountRendererCanvas();
@@ -137,6 +138,7 @@ export default function App() {
     window.addEventListener('renderer-remount', handler);
     return () => window.removeEventListener('renderer-remount', handler);
   }, []);
+
 
   return (
     <ReactFlowProvider>
