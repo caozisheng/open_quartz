@@ -2,7 +2,7 @@ import { useGraphStore } from '../../store/useGraphStore';
 import { ShaderEditor } from './ShaderEditor';
 import { PortInspector } from './PortInspector';
 import { OnnxPanel } from './OnnxPanel';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImageLightbox } from '../ImageLightbox';
 import type { FramebufferFormat, TextureFilter, TextureWrap } from '../../types';
 import { generateRawPreview } from '../../utils/rawPreview';
@@ -33,6 +33,14 @@ export function SidePanel() {
   const data = selectedNode?.data;
   const nodeError = selectedNodeId ? nodeErrors[selectedNodeId] : undefined;
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (lightboxSrc) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('renderer-remount'));
+      });
+    }
+  }, [lightboxSrc]);
 
   const handleLabelChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -302,9 +310,19 @@ export function SidePanel() {
               </div>
               <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
                 <div
-                  id={`renderer-canvas-mount-${selectedNodeId}`}
-                  className="w-full h-full rounded border border-[#d2d2d7] bg-[#1d1d1f]"
-                />
+                  onClick={() => setLightboxSrc(`renderer:${selectedNodeId}`)}
+                  className="cursor-pointer rounded border border-[#e8e8ed] overflow-hidden bg-[#1d1d1f]"
+                  style={{
+                    width: '100%',
+                    aspectRatio: `${data.resolvedWidth ?? 16} / ${data.resolvedHeight ?? 9}`,
+                    maxHeight: '100%',
+                  }}
+                >
+                  <div
+                    id={`renderer-panel-mount-${selectedNodeId}`}
+                    className="w-full h-full"
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -485,7 +503,21 @@ export function SidePanel() {
         </div>
       )}
 
-      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightboxSrc && !lightboxSrc.startsWith('renderer:') && (
+        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      )}
+      {lightboxSrc?.startsWith('renderer:') && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-pointer"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <div
+            id={`renderer-fullscreen-mount-${lightboxSrc.slice('renderer:'.length)}`}
+            className="w-[90vw] h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </aside>
   );
 }

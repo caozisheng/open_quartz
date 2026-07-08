@@ -16,9 +16,27 @@ export default function App() {
     if (!canvas) return;
     const state = useGraphStore.getState();
     const rendererId = state.activeRendererId
-      ?? state.nodes.find((node) => node.data.type === 'renderer' && node.data.expanded !== false)?.id;
+      ?? state.nodes.find((node) => node.data.type === 'renderer')?.id;
     if (!rendererId) return;
-    const mount = document.getElementById(`renderer-canvas-mount-${rendererId}`);
+    // Priority: fullscreen overlay > in-place node > panel
+    const fullscreenMount = document.getElementById(`renderer-fullscreen-mount-${rendererId}`);
+    if (fullscreenMount) {
+      if (canvas.parentElement !== fullscreenMount) {
+        canvas.className = '';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+        fullscreenMount.replaceChildren(canvas);
+      }
+      hostRef.current?.setActiveRenderer(rendererId);
+      return;
+    }
+    const node = state.nodes.find((n) => n.id === rendererId);
+    const inPlace = node?.data.expanded !== false;
+    const mountId = inPlace
+      ? `renderer-canvas-mount-${rendererId}`
+      : `renderer-panel-mount-${rendererId}`;
+    const mount = document.getElementById(mountId);
     if (!mount || canvas.parentElement === mount) return;
     canvas.className = '';
     canvas.style.width = '100%';
@@ -106,8 +124,18 @@ export default function App() {
         hostRef.current?.setActiveRenderer(state.activeRendererId);
         requestAnimationFrame(mountRendererCanvas);
       }
+
+      if (state.selectedNodeId !== prev.selectedNodeId) {
+        requestAnimationFrame(mountRendererCanvas);
+      }
     });
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => mountRendererCanvas();
+    window.addEventListener('renderer-remount', handler);
+    return () => window.removeEventListener('renderer-remount', handler);
   }, []);
 
   return (
