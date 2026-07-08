@@ -235,8 +235,23 @@ export class ExecutionEngine {
           const source = textures.get(upstreamEdge.source);
           if (!source) throw new Error(`ONNX upstream '${upstreamEdge.source}' produced no texture`);
 
+          // Source dimensions: FBO knows its own size; image texture reads the underlying HTMLImageElement.
+          let srcW: number;
+          let srcH: number;
+          if (source.kind === 'fbo') {
+            srcW = source.target.width;
+            srcH = source.target.height;
+          } else {
+            const img: unknown = source.texture.image;
+            if (img instanceof HTMLImageElement) {
+              srcW = img.naturalWidth || defaultW;
+              srcH = img.naturalHeight || defaultH;
+            } else {
+              srcW = defaultW;
+              srcH = defaultH;
+            }
+          }
           // Render the upstream source into a scratch RGBA8 FBO we can read back.
-          const { w: srcW, h: srcH } = nodeSize.get(nodeId) ?? { w: defaultW, h: defaultH };
           const scratchId = `onnx_src_${nodeId}`;
           const scratchTarget = this.renderer.createTarget(scratchId, srcW, srcH, false, 'rgba8');
           if (source.kind === 'fbo') {

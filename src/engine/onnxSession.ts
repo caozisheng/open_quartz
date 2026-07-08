@@ -1,14 +1,24 @@
 // OnnxSession — one-per-descriptor detector façade with lazy wasm init.
 //
-// - The upstream `rimeflow-yolov8n` ort_bridge auto-loads onnxruntime-web from
-//   `/ort/ort.min.js` on the first `ort_init` call, so no pre-check on
+// - The upstream `rimeflow-yolov8n` `ort_bridge` auto-loads onnxruntime-web
+//   from `/ort/ort.min.js` on the first `ort_init` call, so no pre-check on
 //   `globalThis.ort` is required here.
-// - The wasm module (Rust wasm-pack build) is a static import via the
-//   Vite alias `@nodes/yolo-detector`; we lazily *initialize* it on first use.
-import __wbg_init, { YoloDetectorWasm, type OnnxDetection } from '@nodes/yolo-detector';
+// - The wasm module is a static import via the Vite alias
+//   `@nodes/yolo-detector` (`vite.config.ts`, `vitest.config.ts`,
+//   `tsconfig.app.json` paths). We lazily *initialize* it on first use.
+// - `wasm-pack --target web` emits `detect(...)` as `Promise<any>` — no typed
+//   binding for our `DetectionJs` struct because `serde_wasm_bindgen` doesn't
+//   emit `.d.ts`. We own the domain type here and narrow at the boundary.
+
+import __wbg_init, { YoloDetectorWasm } from '@nodes/yolo-detector';
 import type { OnnxModelDescriptor } from './onnxRegistry';
 
-export type { OnnxDetection };
+export interface OnnxDetection {
+  bbox: [number, number, number, number];
+  score: number;
+  class_id: number;
+  class_name: string;
+}
 
 export interface OnnxResult {
   detections: OnnxDetection[];
@@ -17,6 +27,7 @@ export interface OnnxResult {
 }
 
 export type OnnxSessionStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 const WASM_URL = new URL(
   '../../rust/crates/yolo-detector/pkg/yolo_detector_bg.wasm',
   import.meta.url,
@@ -30,6 +41,28 @@ function ensureWasmReady(): Promise<void> {
   const promise = __wbg_init(WASM_URL).then(() => undefined);
   wasmReady = promise;
   return promise;
+}
+
+function isDetection(v: unknown): v is OnnxDetection {
+  if (!v || typeof v !== 'object') return false;
+  if (!('bbox' in v && 'score' in v && 'class_id' in v && 'class_name' in v)) return false;
+  const bbox = v.bbox;
+  if (!Array.isArray(bbox) || bbox.length !== 4) return false;
+  for (const n of bbox) {
+    if (typeof n !== 'number') return false;
+  }
+  return (
+    typeof v.score === 'number' &&
+    typeof v.class_id === 'number' &&
+    typeof v.class_name === 'string'
+  );
+}
+
+function parseDetections(raw: unknown): OnnxDetection[] {
+  if (!raw || typeof raw !== 'object' || !('detections' in raw)) return [];
+  const list = raw.detections;
+  if (!Array.isArray(list)) return [];
+  return list.filter(isDetection);
 }
 
 export class OnnxSession {
@@ -77,9 +110,9 @@ export class OnnxSession {
     if (!this.detector || this._status !== 'ready') {
       throw new Error(`OnnxSession(${this.descriptor.id}) not ready`);
     }
-    const raw = await this.detector.detect(canvas, srcW, srcH);
+    const raw: unknown = await this.detector.detect(canvas, srcW, srcH);
     return {
-      detections: raw.detections,
+      detections: parseDetections(raw),
       scoreThreshold: this.descriptor.scoreThreshold,
       iouThreshold: this.descriptor.iouThreshold,
     };
