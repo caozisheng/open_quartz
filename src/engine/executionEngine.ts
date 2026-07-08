@@ -49,6 +49,10 @@ export class ExecutionEngine {
     return this.running;
   }
 
+  getCanvas(): HTMLCanvasElement | null {
+    return this.renderer?.canvas ?? null;
+  }
+
   prepare(
     nodes: Node<ShaderNodeData>[],
     edges: Edge[],

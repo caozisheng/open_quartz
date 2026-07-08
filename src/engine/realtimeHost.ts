@@ -29,7 +29,6 @@ export class RealtimeHost {
   private videoSources = new Map<string, VideoSource>();
   private videoTextures = new Map<string, THREE.Texture>();
   private needsRecompile = false;
-  private activeRendererId: string | null = null;
 
   constructor(canvas: HTMLCanvasElement, callbacks: HostCallbacks) {
     this.compositor = new Compositor(canvas);
@@ -95,9 +94,6 @@ export class RealtimeHost {
     void this.reconcileVideoSources(nodes);
   }
 
-  setActiveRenderer(id: string | null): void {
-    this.activeRendererId = id;
-  }
 
   captureScreenshot(rendererId: string): string | null {
     return this.compositor.captureScreenshot(rendererId);
@@ -189,11 +185,20 @@ export class RealtimeHost {
 
     this.compositor.render(inputs);
 
-    const rendererId = this.activeRendererId
-      ?? this.nodes.find((node) => node.data.type === 'renderer' && node.data.expanded !== false)?.id
-      ?? null;
-    if (rendererId) {
-      this.compositor.renderRendererToScreen(rendererId);
+    const glCanvas = this.compositor.getCanvas();
+    const rendererNodes = this.nodes.filter((n) => n.data.type === 'renderer');
+    for (const rNode of rendererNodes) {
+      this.compositor.renderRendererToScreen(rNode.id);
+      if (!glCanvas) continue;
+      const mirrors = document.querySelectorAll<HTMLCanvasElement>(
+        `canvas[id^="renderer-mirror-"][id$="-${rNode.id}"], canvas#renderer-mirror-${rNode.id}`
+      );
+      for (const mirror of mirrors) {
+        const ctx = mirror.getContext('2d');
+        if (!ctx) continue;
+        ctx.clearRect(0, 0, mirror.width, mirror.height);
+        ctx.drawImage(glCanvas, 0, 0, mirror.width, mirror.height);
+      }
     }
 
     this.callbacks.onFrame?.(ts);

@@ -8,47 +8,9 @@ import { RealtimeHost } from './engine/realtimeHost';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const canvasHolderRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<RealtimeHost | null>(null);
 
-  const mountRendererCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const state = useGraphStore.getState();
-    const rendererId = state.activeRendererId
-      ?? state.nodes.find((node) => node.data.type === 'renderer')?.id;
-    if (!rendererId) return;
-    // Priority: fullscreen overlay > in-place node > panel
-    const fullscreenMount = document.getElementById(`renderer-fullscreen-mount-${rendererId}`);
-    if (fullscreenMount) {
-      if (canvas.parentElement !== fullscreenMount) {
-        canvas.className = '';
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        canvas.style.display = 'block';
-        fullscreenMount.replaceChildren(canvas);
-      }
-      hostRef.current?.setActiveRenderer(rendererId);
-      return;
-    }
-    const node = state.nodes.find((n) => n.id === rendererId);
-    const inPlace = node?.data.expanded !== false;
-    const mountId = inPlace
-      ? `renderer-canvas-mount-${rendererId}`
-      : `renderer-panel-mount-${rendererId}`;
-    const mount = document.getElementById(mountId);
-    if (!mount || canvas.parentElement === mount) return;
-    canvas.className = '';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    canvas.style.display = 'block';
-    mount.replaceChildren(canvas);
-    hostRef.current?.setActiveRenderer(rendererId);
-  };
 
-
-
-  // Real-time loop
   useEffect(() => {
     const unsub = useGraphStore.subscribe((state, prev) => {
       const canvas = canvasRef.current;
@@ -83,9 +45,7 @@ export default function App() {
           });
         }
         useGraphStore.getState().setCaptureScreenshot((id) => hostRef.current?.captureScreenshot(id) ?? null);
-        // Use setTimeout to ensure DOM has updated after state change
         setTimeout(() => {
-          mountRendererCanvas();
           const s = useGraphStore.getState();
           hostRef.current?.play(s.nodes, s.edges);
         }, 0);
@@ -98,47 +58,21 @@ export default function App() {
       // Resume
       if (state.loopState === 'playing' && prev.loopState === 'paused') {
         hostRef.current?.resume();
-        requestAnimationFrame(mountRendererCanvas);
       }
 
       // Stop
       if (state.loopState === 'stopped' && prev.loopState !== 'stopped') {
         hostRef.current?.stop();
-        const c = canvasRef.current;
-        const holder = canvasHolderRef.current;
-        if (c && holder) {
-          c.style.width = '';
-          c.style.height = '';
-          c.style.display = '';
-          holder.appendChild(c);
-        }
       }
 
       // Hot-update graph while playing
       if (state.loopState === 'playing' &&
           (state.nodes !== prev.nodes || state.edges !== prev.edges)) {
         hostRef.current?.updateGraph(state.nodes, state.edges);
-        requestAnimationFrame(mountRendererCanvas);
-      }
-
-      if (state.activeRendererId !== prev.activeRendererId) {
-        hostRef.current?.setActiveRenderer(state.activeRendererId);
-        requestAnimationFrame(mountRendererCanvas);
-      }
-
-      if (state.selectedNodeId !== prev.selectedNodeId) {
-        requestAnimationFrame(mountRendererCanvas);
       }
     });
     return () => unsub();
   }, []);
-
-  useEffect(() => {
-    const handler = () => mountRendererCanvas();
-    window.addEventListener('renderer-remount', handler);
-    return () => window.removeEventListener('renderer-remount', handler);
-  }, []);
-
 
   return (
     <ReactFlowProvider>
@@ -150,7 +84,7 @@ export default function App() {
           </div>
           <SidePanel />
         </main>
-        <div ref={canvasHolderRef} className="hidden"><canvas ref={canvasRef} /></div>
+        <canvas ref={canvasRef} className="hidden" />
       </div>
     </ReactFlowProvider>
   );

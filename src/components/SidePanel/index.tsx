@@ -312,19 +312,17 @@ export function SidePanel() {
                 </button>
               </div>
               <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
-                <div
-                  className="rounded border border-[#e8e8ed] overflow-hidden bg-[#1d1d1f]"
+                <canvas
+                  id={`renderer-mirror-${selectedNodeId}`}
+                  className="rounded border border-[#e8e8ed] bg-[#1d1d1f]"
+                  width={data.resolvedWidth ?? 512}
+                  height={data.resolvedHeight ?? 512}
                   style={{
                     width: '100%',
-                    aspectRatio: `${data.resolvedWidth ?? 16} / ${data.resolvedHeight ?? 9}`,
                     maxHeight: '100%',
+                    aspectRatio: `${data.resolvedWidth ?? 16} / ${data.resolvedHeight ?? 9}`,
                   }}
-                >
-                  <div
-                    id={`renderer-panel-mount-${selectedNodeId}`}
-                    className="w-full h-full"
-                  />
-                </div>
+                />
               </div>
             </div>
           )}
@@ -516,10 +514,7 @@ export function SidePanel() {
         return (
           <div
             className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
-            onClick={() => {
-              setLightboxSrc(null);
-              requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('renderer-remount')));
-            }}
+            onClick={() => setLightboxSrc(null)}
           >
             <div className="absolute top-4 right-4 flex items-center gap-3 z-10">
               <button
@@ -541,16 +536,17 @@ export function SidePanel() {
                 onClick={(e) => {
                   e.stopPropagation();
                   setLightboxSrc(null);
-                  requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('renderer-remount')));
                 }}
                 className="text-[11px] text-white/80 hover:text-white font-medium px-3 py-1 rounded bg-white/10 hover:bg-white/20"
               >
                 CLOSE
               </button>
             </div>
-            <div
-              id={`renderer-fullscreen-mount-${rid}`}
+            <canvas
+              id={`renderer-mirror-fullscreen-${rid}`}
               className="rounded overflow-hidden"
+              width={rw}
+              height={rh}
               style={{
                 width: '90vw',
                 maxHeight: '85vh',

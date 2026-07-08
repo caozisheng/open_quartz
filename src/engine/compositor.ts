@@ -46,6 +46,10 @@ export class Compositor {
     this.engine.renderRendererToScreen(this.plan, rendererNodeId);
   }
 
+  getCanvas(): HTMLCanvasElement | null {
+    return this.engine.getCanvas();
+  }
+
   captureScreenshot(rendererNodeId: string): string | null {
     if (!this.plan) return null;
     return this.engine.captureRendererScreenshot(this.plan, rendererNodeId);

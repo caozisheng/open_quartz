@@ -85,14 +85,14 @@ export function RendererNode({ id, data, selected }: NodeProps<RendererNodeType>
         <>
           <div className="mx-3 border-t border-[#f0f0f0]" />
           <div className="px-2 py-2">
-            {/* Preview placeholder or actual preview */}
-            <div
-              id={`renderer-canvas-mount-${id}`}
+            <canvas
+              id={`renderer-mirror-${id}`}
               onClick={handlePreviewClick}
-              className="cursor-pointer rounded border border-[#e8e8ed] overflow-hidden bg-[#1d1d1f]"
-              style={{ width: previewW, height: previewH }}
+              className="cursor-pointer rounded border border-[#e8e8ed] bg-[#1d1d1f]"
+              width={rw}
+              height={rh}
+              style={{ width: previewW, height: previewH, display: 'block' }}
             />
-            {/* Resolution */}
             <div className="text-[9px] text-[#aeaeb2] text-center mt-1">
               {rw}×{rh}
             </div>
