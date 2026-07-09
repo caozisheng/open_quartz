@@ -2,7 +2,7 @@ import { useGraphStore } from '../../store/useGraphStore';
 import { ShaderEditor } from './ShaderEditor';
 import { PortInspector } from './PortInspector';
 import { OnnxPanel } from './OnnxPanel';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ImageLightbox } from '../ImageLightbox';
 import type { FramebufferFormat, TextureFilter, TextureWrap } from '../../types';
 import { generateRawPreview } from '../../utils/rawPreview';
@@ -49,6 +49,29 @@ export function SidePanel() {
   const nodeError = selectedNodeId ? nodeErrors[selectedNodeId] : undefined;
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [panelWidth, setPanelWidth] = useState(320);
+  const resizing = useRef(false);
+  const startX = useRef(0);
+  const startW = useRef(320);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizing.current = true;
+    startX.current = e.clientX;
+    startW.current = panelWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!resizing.current) return;
+      const delta = startX.current - ev.clientX;
+      setPanelWidth(Math.max(240, Math.min(640, startW.current + delta)));
+    };
+    const onUp = () => {
+      resizing.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [panelWidth]);
 
   const toggleSection = useCallback((section: string) => {
     setCollapsedSections((prev) => {
@@ -440,7 +463,12 @@ export function SidePanel() {
   }
 
   return (
-    <aside className="w-80 bg-white border-l border-[#d2d2d7] flex-shrink-0 flex flex-col overflow-hidden">
+    <aside className="bg-white border-l border-[#d2d2d7] flex-shrink-0 flex flex-col overflow-hidden relative" style={{ width: panelWidth }}>
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleResizeStart}
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#007aff]/30 z-10"
+      />
       {/* Node header — always visible */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[#e8e8ed]">
         <div>
