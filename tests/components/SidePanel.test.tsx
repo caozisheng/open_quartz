@@ -150,7 +150,7 @@ describe('SidePanel', () => {
       nodes: [{ id: 'n1', type: 'shader', position: { x: 0, y: 0 }, data: makeShaderNodeData({ type: 'shader' }) }],
     });
     expect(screen.getByTestId('shader-editor')).toBeInTheDocument();
-    expect(screen.getByText('Shader Editor')).toBeInTheDocument();
+    expect(screen.getByText('SHADER EDITOR')).toBeInTheDocument();
   });
 
   it('ShaderEditor receives correct code prop', () => {
@@ -219,14 +219,14 @@ describe('SidePanel', () => {
     expect(screen.getByText('PREVIEW')).toBeInTheDocument();
   });
 
-  it('shows "Press Run to preview" when no output preview', () => {
+  it('shows "Press Play to preview" when no output preview', () => {
     renderSidePanel({
       selectedNodeId: 'n1',
       nodes: [{ id: 'n1', type: 'shader', position: { x: 0, y: 0 }, data: makeShaderNodeData({ type: 'shader' }) }],
       outputPreviews: {},
       edges: [],
     });
-    expect(screen.getByText('Press Run to preview')).toBeInTheDocument();
+    expect(screen.getByText('Press Play to preview')).toBeInTheDocument();
   });
 
   it('renders preview image when outputPreview exists', () => {

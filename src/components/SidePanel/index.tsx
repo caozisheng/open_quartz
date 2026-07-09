@@ -17,7 +17,6 @@ const FB_FORMATS: { label: string; value: FramebufferFormat }[] = [
   { label: 'NV12', value: 'nv12' },
 ];
 
-
 const OUT_FORMATS: { label: string; value: FramebufferFormat }[] = [
   { label: 'RGBA8', value: 'rgba8' },
   { label: 'RGBA32F', value: 'rgba32f' },
@@ -27,13 +26,38 @@ const OUT_FORMATS: { label: string; value: FramebufferFormat }[] = [
   { label: 'R32F', value: 'r32f' },
 ];
 
+// --- Accordion section header ---
+function SectionHeader({ title, expanded, onClick, extra }: { title: string; expanded: boolean; onClick: () => void; extra?: React.ReactNode }) {
+  return (
+    <div
+      onClick={onClick}
+      className="flex items-center justify-between px-4 py-1.5 border-t border-[#e8e8ed] cursor-pointer hover:bg-[#f5f5f7] select-none"
+    >
+      <span className="flex items-center gap-1.5 text-[11px] text-[#86868b] font-medium">
+        <span className="text-[8px]">{expanded ? '▾' : '▸'}</span>
+        {title}
+      </span>
+      {extra}
+    </div>
+  );
+}
+
 export function SidePanel() {
   const { nodes, selectedNodeId, updateNodeData, removeNode, outputPreviews, nodeErrors } = useGraphStore();
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const data = selectedNode?.data;
   const nodeError = selectedNodeId ? nodeErrors[selectedNodeId] : undefined;
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
+  const toggleSection = useCallback((section: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  }, []);
 
   const handleLabelChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -55,10 +79,11 @@ export function SidePanel() {
 
   const handleUniformChange = useCallback(
     (label: string, value: unknown) => {
-      if (!selectedNodeId || !data) return;
-      updateNodeData(selectedNodeId, {
-        uniforms: { ...data.uniforms, [label]: value },
-      });
+      if (selectedNodeId && data) {
+        updateNodeData(selectedNodeId, {
+          uniforms: { ...data.uniforms, [label]: value },
+        });
+      }
     },
     [selectedNodeId, data, updateNodeData],
   );
@@ -78,9 +103,345 @@ export function SidePanel() {
 
   if (!selectedNode || !data) return null;
 
+  // Build sections array based on node type
+  const sections: { id: string; title: string; content: React.ReactNode; extra?: React.ReactNode; flexFill?: boolean }[] = [];
+
+  // --- SHADER EDITOR (shader nodes only) ---
+  if (data.type === 'shader') {
+    sections.push({
+      id: 'editor',
+      title: 'SHADER EDITOR',
+      flexFill: true,
+      content: (
+        <div className="flex-1 overflow-hidden">
+          <ShaderEditor key={selectedNodeId} code={data.shaderCode} onChange={handleShaderChange} />
+        </div>
+      ),
+    });
+  }
+
+  // --- PORTS (all nodes) ---
+  sections.push({
+    id: 'ports',
+    title: 'PORTS',
+    content: (
+      <div className="px-4 py-3 overflow-y-auto">
+        <PortInspector
+          inputs={data.inputs}
+          outputs={data.outputs}
+          uniforms={data.uniforms}
+          onUniformChange={handleUniformChange}
+        />
+      </div>
+    ),
+  });
+
+  // --- ONNX CONFIG ---
+  if (data.type === 'onnx' && data.onnxModelId) {
+    sections.push({
+      id: 'onnx',
+      title: 'ONNX CONFIG',
+      content: (
+        <OnnxPanel
+          nodeId={selectedNodeId!}
+          modelId={data.onnxModelId}
+          score={data.onnxScoreThreshold}
+          iou={data.onnxIouThreshold}
+        />
+      ),
+    });
+  }
+
+  // --- OUTPUT CONFIG (shader / constant) ---
+  if (data.type === 'shader' || data.type === 'constant') {
+    sections.push({
+      id: 'output',
+      title: 'OUTPUT CONFIG',
+      content: (
+        <div className="px-4 py-3 overflow-y-auto">
+          <div className="mb-3">
+            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Format</label>
+            <select
+              value={data.outFormat ?? 'rgba8'}
+              onChange={(e) => updateNodeData(selectedNodeId!, { outFormat: e.target.value as FramebufferFormat })}
+              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
+            >
+              {OUT_FORMATS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="mb-3">
+            <label className="flex items-center gap-1.5 text-[10px] text-[#86868b] font-medium mb-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data.autoSize !== false}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    updateNodeData(selectedNodeId!, { autoSize: true, width: undefined, height: undefined });
+                  } else {
+                    updateNodeData(selectedNodeId!, { autoSize: false, width: 512, height: 512 });
+                  }
+                }}
+                className="accent-[#007aff]"
+              />
+              Auto Size
+            </label>
+            {data.autoSize === false ? (
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
+                  <input type="number" min={1} max={8192} value={String(data.width ?? 512)}
+                    onChange={(e) => updateNodeData(selectedNodeId!, { width: parseInt(e.target.value) || 512 })}
+                    className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
+                  <input type="number" min={1} max={8192} value={String(data.height ?? 512)}
+                    onChange={(e) => updateNodeData(selectedNodeId!, { height: parseInt(e.target.value) || 512 })}
+                    className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]" />
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
+                  <input type="number" disabled value={String(data.resolvedWidth ?? '')}
+                    className="w-full text-[12px] text-[#aeaeb2] bg-[#f5f5f7] rounded px-2 py-1 border border-[#e8e8ed] cursor-default" placeholder="—" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
+                  <input type="number" disabled value={String(data.resolvedHeight ?? '')}
+                    className="w-full text-[12px] text-[#aeaeb2] bg-[#f5f5f7] rounded px-2 py-1 border border-[#e8e8ed] cursor-default" placeholder="—" />
+                </div>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-[10px] text-[#86868b] font-medium mb-2">SAMPLING</div>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Filter</label>
+                <select value={data.texFilter ?? 'linear'} onChange={(e) => updateNodeData(selectedNodeId!, { texFilter: e.target.value as TextureFilter })}
+                  className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]">
+                  <option value="linear">LINEAR</option>
+                  <option value="nearest">NEAREST</option>
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Wrap</label>
+                <select value={data.texWrap ?? 'clamp'} onChange={(e) => updateNodeData(selectedNodeId!, { texWrap: e.target.value as TextureWrap })}
+                  className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]">
+                  <option value="clamp">CLAMP</option>
+                  <option value="repeat">REPEAT</option>
+                  <option value="mirror">MIRROR</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      ),
+    });
+  }
+
+  // --- RENDERER CONFIG ---
+  if (data.type === 'renderer') {
+    sections.push({
+      id: 'renderer',
+      title: 'RENDERER CONFIG',
+      content: (
+        <div className="px-4 py-3">
+          <div className="text-[11px] text-[#86868b] mb-2">
+            Size follows upstream output{data.resolvedWidth && data.resolvedHeight ? `: ${data.resolvedWidth} × ${data.resolvedHeight}` : ''}
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
+            <input type="checkbox" checked={data.expanded !== false}
+              onChange={(e) => updateNodeData(selectedNodeId!, { expanded: e.target.checked })} />
+            In-place preview
+          </label>
+        </div>
+      ),
+    });
+  }
+
+  // --- FRAMEBUFFER CONFIG ---
+  if (data.type === 'input' && data.inputMode === 'framebuffer') {
+    sections.push({
+      id: 'fbconfig',
+      title: 'FRAMEBUFFER CONFIG',
+      content: (
+        <div className="px-4 py-3 overflow-y-auto">
+          <div className="mb-2">
+            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Format</label>
+            <select value={data.fbFormat ?? 'rgba8'} onChange={(e) => updateNodeData(selectedNodeId!, { fbFormat: e.target.value as FramebufferFormat })}
+              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]">
+              {FB_FORMATS.map((f) => (<option key={f.value} value={f.value}>{f.label}</option>))}
+            </select>
+          </div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="flex-1">
+              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
+              <input type="number" min={1} max={8192} value={String(data.fbWidth ?? '')}
+                onChange={(e) => updateNodeData(selectedNodeId!, { fbWidth: parseInt(e.target.value) || undefined })}
+                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]" placeholder="required" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
+              <input type="number" min={1} max={8192} value={String(data.fbHeight ?? '')}
+                onChange={(e) => updateNodeData(selectedNodeId!, { fbHeight: parseInt(e.target.value) || undefined })}
+                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]" placeholder="required" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Stride (bytes per row)</label>
+            <input type="number" min={0} value={String(data.fbStride ?? '')}
+              onChange={(e) => updateNodeData(selectedNodeId!, { fbStride: parseInt(e.target.value) || undefined })}
+              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]" placeholder="auto" />
+          </div>
+        </div>
+      ),
+    });
+  }
+
+  // --- VIDEO CONFIG ---
+  if (data.type === 'input' && data.inputMode === 'video') {
+    sections.push({
+      id: 'videoconfig',
+      title: 'VIDEO CONFIG',
+      content: (
+        <div className="px-4 py-3">
+          <div className="mb-2">
+            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Source</label>
+            <select value={data.videoSourceType ?? 'file'} onChange={(e) => updateNodeData(selectedNodeId!, { videoSourceType: e.target.value as 'camera' | 'file' })}
+              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]">
+              <option value="file">FILE</option>
+              <option value="camera">CAMERA</option>
+            </select>
+          </div>
+          {(data.imageWidth || data.resolvedWidth) && (data.imageHeight || data.resolvedHeight) && (
+            <div className="text-[11px] text-[#86868b] mb-2">
+              {(data.imageWidth ?? data.resolvedWidth)} × {(data.imageHeight ?? data.resolvedHeight)}
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
+              <input type="checkbox" checked={data.videoLoop ?? true}
+                onChange={(e) => updateNodeData(selectedNodeId!, { videoLoop: e.target.checked })} />
+              Loop
+            </label>
+            <div className="flex-1">
+              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Rate</label>
+              <input type="number" step="0.1" min="0.1" value={String(data.videoPlaybackRate ?? 1)}
+                onChange={(e) => updateNodeData(selectedNodeId!, { videoPlaybackRate: parseFloat(e.target.value) || 1 })}
+                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]" />
+            </div>
+          </div>
+        </div>
+      ),
+    });
+  }
+
+  // --- SAMPLING (sampler2D inputs) ---
+  if (data.type === 'input' && data.inputDataType === 'sampler2D') {
+    sections.push({
+      id: 'sampling',
+      title: 'SAMPLING',
+      content: (
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Filter</label>
+              <select value={data.texFilter ?? 'linear'} onChange={(e) => updateNodeData(selectedNodeId!, { texFilter: e.target.value as TextureFilter })}
+                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]">
+                <option value="linear">LINEAR</option>
+                <option value="nearest">NEAREST</option>
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Wrap</label>
+              <select value={data.texWrap ?? 'clamp'} onChange={(e) => updateNodeData(selectedNodeId!, { texWrap: e.target.value as TextureWrap })}
+                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]">
+                <option value="clamp">CLAMP</option>
+                <option value="repeat">REPEAT</option>
+                <option value="mirror">MIRROR</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      ),
+    });
+  }
+
+  // --- PREVIEW ---
+  const hasPreview = (data.type === 'shader' || data.type === 'constant') ||
+    (data.type === 'renderer' && data.expanded === false) ||
+    isSampler2D;
+
+  if (hasPreview) {
+    const previewExtra = data.type === 'renderer' ? (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!selectedNodeId) return;
+          setLightboxSrc(`renderer:${selectedNodeId}`);
+          requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('renderer-remount')));
+        }}
+        className="text-[10px] text-[#007aff] hover:text-[#0066d6] font-medium cursor-default"
+      >
+        FULLSCREEN
+      </button>
+    ) : undefined;
+
+    sections.push({
+      id: 'preview',
+      title: 'PREVIEW',
+      flexFill: true,
+      extra: previewExtra,
+      content: (
+        <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
+          {data.type === 'renderer' && data.expanded === false ? (
+            <canvas
+              id={`renderer-mirror-${selectedNodeId}`}
+              className="rounded border border-[#e8e8ed] bg-[#1d1d1f]"
+              width={data.resolvedWidth ?? 512}
+              height={data.resolvedHeight ?? 512}
+              style={{
+                width: '100%',
+                maxHeight: '100%',
+                aspectRatio: `${data.resolvedWidth ?? 16} / ${data.resolvedHeight ?? 9}`,
+              }}
+            />
+          ) : isSampler2D ? (
+            inputPreviewSrc ? (
+              data.inputMode === 'video' ? (
+                <video src={inputPreviewSrc} muted loop playsInline autoPlay
+                  onClick={() => setLightboxSrc(inputPreviewSrc)}
+                  className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity" />
+              ) : (
+                <img src={inputPreviewSrc} alt="preview"
+                  onClick={() => setLightboxSrc(inputPreviewSrc)}
+                  className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity" />
+              )
+            ) : (
+              <span className="text-[12px] text-[#aeaeb2]">
+                {isFramebuffer ? 'Load file and set width/height' : data.inputMode === 'video' ? 'Load a video' : 'Load an image'}
+              </span>
+            )
+          ) : outputPreviews[selectedNodeId!] ? (
+            <img src={outputPreviews[selectedNodeId!]} alt="output"
+              onClick={() => setLightboxSrc(outputPreviews[selectedNodeId!])}
+              className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity" />
+          ) : (
+            <span className="text-[12px] text-[#aeaeb2]">Press Play to preview</span>
+          )}
+        </div>
+      ),
+    });
+  }
+
   return (
     <aside className="w-80 bg-white border-l border-[#d2d2d7] flex-shrink-0 flex flex-col overflow-hidden">
-      {/* Node header */}
+      {/* Node header — always visible */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[#e8e8ed]">
         <div>
           <label className="text-[10px] text-[#86868b] font-medium">{data.type.toUpperCase()}</label>
@@ -99,7 +460,7 @@ export function SidePanel() {
         </button>
       </div>
 
-      {/* Error display */}
+      {/* Error — always visible when present */}
       {nodeError && (
         <div className="px-4 py-2 bg-[#fff0f0] border-b border-[#ffd0d0]">
           <div className="text-[10px] text-[#ff3b30] font-medium mb-0.5">Error</div>
@@ -107,402 +468,37 @@ export function SidePanel() {
         </div>
       )}
 
-      {/* Shader editor (only for shader type) */}
-      {data.type === 'shader' && (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="px-4 py-1.5 text-[11px] text-[#86868b] font-medium border-b border-[#e8e8ed]">
-            Shader Editor
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <ShaderEditor key={selectedNodeId} code={data.shaderCode} onChange={handleShaderChange} />
-          </div>
-        </div>
-      )}
-
-      {/* Port inspector for all node types */}
-      <div className="px-4 py-3 border-t border-[#e8e8ed] overflow-y-auto flex-shrink-0 max-h-64">
-        <PortInspector
-          inputs={data.inputs}
-          outputs={data.outputs}
-          uniforms={data.uniforms}
-          onUniformChange={handleUniformChange}
-        />
-      </div>
-
-      {data.type === 'onnx' && data.onnxModelId && (
-        <OnnxPanel
-          nodeId={selectedNodeId!}
-          modelId={data.onnxModelId}
-          score={data.onnxScoreThreshold}
-          iou={data.onnxIouThreshold}
-        />
-      )}
-
-      {/* Output config for shader nodes */}
-      {(data.type === 'shader' || data.type === 'constant') && (
-        <>
-          <div className="px-4 py-3 border-t border-[#e8e8ed] overflow-y-auto flex-shrink-0">
-            <div className="text-[10px] text-[#86868b] font-medium mb-2">OUTPUT CONFIG</div>
-            {/* Format */}
-            <div className="mb-3">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Format</label>
-              <select
-                value={data.outFormat ?? 'rgba8'}
-                onChange={(e) => updateNodeData(selectedNodeId!, { outFormat: e.target.value as FramebufferFormat })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-              >
-                {OUT_FORMATS.map((f) => (
-                  <option key={f.value} value={f.value}>{f.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Width / Height controls */}
-            <div className="mb-3">
-              <label className="flex items-center gap-1.5 text-[10px] text-[#86868b] font-medium mb-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={data.autoSize !== false}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      updateNodeData(selectedNodeId!, { autoSize: true, width: undefined, height: undefined });
-                    } else {
-                      updateNodeData(selectedNodeId!, { autoSize: false, width: 512, height: 512 });
-                    }
-                  }}
-                  className="accent-[#007aff]"
-                />
-                Auto Size
-              </label>
-              {data.autoSize === false ? (
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={8192}
-                      value={String(data.width ?? 512)}
-                      onChange={(e) => updateNodeData(selectedNodeId!, { width: parseInt(e.target.value) || 512 })}
-                      className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={8192}
-                      value={String(data.height ?? 512)}
-                      onChange={(e) => updateNodeData(selectedNodeId!, { height: parseInt(e.target.value) || 512 })}
-                      className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
-                    <input
-                      type="number"
-                      disabled
-                      value={String(data.resolvedWidth ?? '')}
-                      className="w-full text-[12px] text-[#aeaeb2] bg-[#f5f5f7] rounded px-2 py-1 border border-[#e8e8ed] cursor-default"
-                      placeholder="—"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
-                    <input
-                      type="number"
-                      disabled
-                      value={String(data.resolvedHeight ?? '')}
-                      className="w-full text-[12px] text-[#aeaeb2] bg-[#f5f5f7] rounded px-2 py-1 border border-[#e8e8ed] cursor-default"
-                      placeholder="—"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Sampling */}
-            <div>
-              <div className="text-[10px] text-[#86868b] font-medium mb-2">SAMPLING</div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Filter</label>
-                  <select
-                    value={data.texFilter ?? 'linear'}
-                    onChange={(e) => updateNodeData(selectedNodeId!, { texFilter: e.target.value as TextureFilter })}
-                    className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-                  >
-                    <option value="linear">LINEAR</option>
-                    <option value="nearest">NEAREST</option>
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Wrap</label>
-                  <select
-                    value={data.texWrap ?? 'clamp'}
-                    onChange={(e) => updateNodeData(selectedNodeId!, { texWrap: e.target.value as TextureWrap })}
-                    className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-                  >
-                    <option value="clamp">CLAMP</option>
-                    <option value="repeat">REPEAT</option>
-                    <option value="mirror">MIRROR</option>
-                  </select>
-                </div>
+      {/* Accordion sections */}
+      {sections.map((section) => {
+        const isExpanded = !collapsedSections.has(section.id);
+        return (
+          <div
+            key={section.id}
+            className={`flex flex-col min-h-0 ${isExpanded && section.flexFill ? 'flex-1' : ''}`}
+          >
+            <SectionHeader
+              title={section.title}
+              expanded={isExpanded}
+              onClick={() => toggleSection(section.id)}
+              extra={section.extra}
+            />
+            {isExpanded && (
+              <div className={`overflow-hidden ${section.flexFill ? 'flex-1 flex flex-col min-h-0' : ''}`}>
+                {section.content}
               </div>
-            </div>
+            )}
           </div>
+        );
+      })}
 
-          {/* Preview */}
-          <div className="flex-1 flex flex-col min-h-0 border-t border-[#e8e8ed]">
-            <div className="px-4 py-1.5 text-[11px] text-[#86868b] font-medium">
-              PREVIEW
-            </div>
-            <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
-              {outputPreviews[selectedNodeId!] ? (
-                <img
-                  src={outputPreviews[selectedNodeId!]}
-                  alt="output"
-                  onClick={() => setLightboxSrc(outputPreviews[selectedNodeId!])}
-                  className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity"
-                />
-              ) : (
-                <span className="text-[12px] text-[#aeaeb2]">Press Run to preview</span>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Renderer config */}
-      {data.type === 'renderer' && (
-        <>
-          <div className="px-4 py-3 border-t border-[#e8e8ed] flex-shrink-0">
-            <div className="text-[10px] text-[#86868b] font-medium mb-2">RENDERER CONFIG</div>
-            <div className="text-[11px] text-[#86868b] mb-2">
-              Size follows upstream output{data.resolvedWidth && data.resolvedHeight ? `: ${data.resolvedWidth} × ${data.resolvedHeight}` : ''}
-            </div>
-            <label className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
-              <input
-                type="checkbox"
-                checked={data.expanded !== false}
-                onChange={(e) => updateNodeData(selectedNodeId!, { expanded: e.target.checked })}
-              />
-              In-place preview
-            </label>
-          </div>
-
-          {/* Panel preview when not in-place */}
-          {data.expanded === false && (
-            <div className="flex-1 flex flex-col min-h-0 border-t border-[#e8e8ed]">
-              <div className="px-4 py-1.5 flex items-center justify-between">
-                <span className="text-[11px] text-[#86868b] font-medium">PREVIEW</span>
-                <button
-                  onClick={() => {
-                    if (!selectedNodeId) return;
-                    setLightboxSrc(`renderer:${selectedNodeId}`);
-                    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('renderer-remount')));
-                  }}
-                  className="text-[10px] text-[#007aff] hover:text-[#0066d6] font-medium cursor-default"
-                >
-                  FULLSCREEN
-                </button>
-              </div>
-              <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
-                <canvas
-                  id={`renderer-mirror-${selectedNodeId}`}
-                  className="rounded border border-[#e8e8ed] bg-[#1d1d1f]"
-                  width={data.resolvedWidth ?? 512}
-                  height={data.resolvedHeight ?? 512}
-                  style={{
-                    width: '100%',
-                    maxHeight: '100%',
-                    aspectRatio: `${data.resolvedWidth ?? 16} / ${data.resolvedHeight ?? 9}`,
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Image dimensions (read-only) */}
+      {/* Image dimensions badge (always visible, not a section) */}
       {data.type === 'input' && data.inputDataType === 'sampler2D' && data.inputMode !== 'framebuffer' && data.inputMode !== 'video' && data.imageWidth && data.imageHeight && (
-        <div className="px-4 py-2 border-t border-[#e8e8ed] flex-shrink-0">
+        <div className="px-4 py-1 border-t border-[#e8e8ed] flex-shrink-0">
           <span className="text-[11px] text-[#86868b]">{data.imageWidth} × {data.imageHeight}</span>
         </div>
       )}
 
-      {/* Framebuffer config */}
-      {data.type === 'input' && data.inputMode === 'framebuffer' && (
-        <div className="px-4 py-3 border-t border-[#e8e8ed] flex-shrink-0">
-          <div className="text-[10px] text-[#86868b] font-medium mb-2">FRAMEBUFFER CONFIG</div>
-          <div className="mb-2">
-            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Format</label>
-            <select
-              value={data.fbFormat ?? 'rgba8'}
-              onChange={(e) => updateNodeData(selectedNodeId!, { fbFormat: e.target.value as FramebufferFormat })}
-              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-            >
-              {FB_FORMATS.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex-1">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Width</label>
-              <input
-                type="number"
-                min={1}
-                max={8192}
-                value={String(data.fbWidth ?? '')}
-                onChange={(e) => updateNodeData(selectedNodeId!, { fbWidth: parseInt(e.target.value) || undefined })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-                placeholder="required"
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Height</label>
-              <input
-                type="number"
-                min={1}
-                max={8192}
-                value={String(data.fbHeight ?? '')}
-                onChange={(e) => updateNodeData(selectedNodeId!, { fbHeight: parseInt(e.target.value) || undefined })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-                placeholder="required"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Stride (bytes per row)</label>
-            <input
-              type="number"
-              min={0}
-              value={String(data.fbStride ?? '')}
-              onChange={(e) => updateNodeData(selectedNodeId!, { fbStride: parseInt(e.target.value) || undefined })}
-              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-              placeholder="auto"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Video config */}
-      {data.type === 'input' && data.inputMode === 'video' && (
-        <div className="px-4 py-3 border-t border-[#e8e8ed] flex-shrink-0">
-          <div className="text-[10px] text-[#86868b] font-medium mb-2">VIDEO CONFIG</div>
-          <div className="mb-2">
-            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Source</label>
-            <select
-              value={data.videoSourceType ?? 'file'}
-              onChange={(e) => updateNodeData(selectedNodeId!, { videoSourceType: e.target.value as 'camera' | 'file' })}
-              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-            >
-              <option value="file">FILE</option>
-              <option value="camera">CAMERA</option>
-            </select>
-          </div>
-          {(data.imageWidth || data.resolvedWidth) && (data.imageHeight || data.resolvedHeight) && (
-            <div className="text-[11px] text-[#86868b] mb-2">
-              {(data.imageWidth ?? data.resolvedWidth)} × {(data.imageHeight ?? data.resolvedHeight)}
-            </div>
-          )}
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-[11px] text-[#1d1d1f]">
-              <input
-                type="checkbox"
-                checked={data.videoLoop ?? true}
-                onChange={(e) => updateNodeData(selectedNodeId!, { videoLoop: e.target.checked })}
-              />
-              Loop
-            </label>
-            <div className="flex-1">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Rate</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0.1"
-                value={String(data.videoPlaybackRate ?? 1)}
-                onChange={(e) => updateNodeData(selectedNodeId!, { videoPlaybackRate: parseFloat(e.target.value) || 1 })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sampling config for all sampler2D inputs */}
-      {data.type === 'input' && data.inputDataType === 'sampler2D' && (
-        <div className="px-4 py-3 border-t border-[#e8e8ed] flex-shrink-0">
-          <div className="text-[10px] text-[#86868b] font-medium mb-2">SAMPLING</div>
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Filter</label>
-              <select
-                value={data.texFilter ?? 'linear'}
-                onChange={(e) => updateNodeData(selectedNodeId!, { texFilter: e.target.value as TextureFilter })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-              >
-                <option value="linear">LINEAR</option>
-                <option value="nearest">NEAREST</option>
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Wrap</label>
-              <select
-                value={data.texWrap ?? 'clamp'}
-                onChange={(e) => updateNodeData(selectedNodeId!, { texWrap: e.target.value as TextureWrap })}
-                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-              >
-                <option value="clamp">CLAMP</option>
-                <option value="repeat">REPEAT</option>
-                <option value="mirror">MIRROR</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Preview for sampler2D inputs */}
-      {isSampler2D && (
-        <div className="flex-1 flex flex-col min-h-0 border-t border-[#e8e8ed]">
-          <div className="px-4 py-1.5 text-[11px] text-[#86868b] font-medium">
-            PREVIEW
-          </div>
-          <div className="flex-1 flex items-center justify-center bg-[#f5f5f7] overflow-hidden p-2">
-            {inputPreviewSrc ? (
-              data.inputMode === 'video' ? (
-                <video
-                  src={inputPreviewSrc}
-                  muted
-                  loop
-                  playsInline
-                  autoPlay
-                  onClick={() => setLightboxSrc(inputPreviewSrc)}
-                  className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity"
-                />
-              ) : (
-                <img
-                  src={inputPreviewSrc}
-                  alt="preview"
-                  onClick={() => setLightboxSrc(inputPreviewSrc)}
-                  className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity"
-                />
-              )
-            ) : (
-              <span className="text-[12px] text-[#aeaeb2]">
-                {isFramebuffer ? 'Load file and set width/height' : data.inputMode === 'video' ? 'Load a video' : 'Load an image'}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
+      {/* Lightbox overlays */}
       {lightboxSrc && !lightboxSrc.startsWith('renderer:') && (
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
@@ -512,48 +508,18 @@ export function SidePanel() {
         const rw = rNode?.data.resolvedWidth ?? 16;
         const rh = rNode?.data.resolvedHeight ?? 9;
         return (
-          <div
-            className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
-            onClick={() => setLightboxSrc(null)}
-          >
+          <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
+            onClick={() => setLightboxSrc(null)}>
             <div className="absolute top-4 right-4 flex items-center gap-3 z-10">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const capture = useGraphStore.getState().captureScreenshot;
-                  const dataUrl = capture?.(rid);
-                  if (!dataUrl) return;
-                  const a = document.createElement('a');
-                  a.href = dataUrl;
-                  a.download = `renderer-${rid}.png`;
-                  a.click();
-                }}
-                className="text-[11px] text-white/80 hover:text-white font-medium px-3 py-1 rounded bg-white/10 hover:bg-white/20"
-              >
-                SAVE
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setLightboxSrc(null);
-                }}
-                className="text-[11px] text-white/80 hover:text-white font-medium px-3 py-1 rounded bg-white/10 hover:bg-white/20"
-              >
-                CLOSE
-              </button>
+              <button onClick={(e) => { e.stopPropagation(); const capture = useGraphStore.getState().captureScreenshot; const dataUrl = capture?.(rid); if (!dataUrl) return; const a = document.createElement('a'); a.href = dataUrl; a.download = `renderer-${rid}.png`; a.click(); }}
+                className="text-[11px] text-white/80 hover:text-white font-medium px-3 py-1 rounded bg-white/10 hover:bg-white/20">SAVE</button>
+              <button onClick={(e) => { e.stopPropagation(); setLightboxSrc(null); }}
+                className="text-[11px] text-white/80 hover:text-white font-medium px-3 py-1 rounded bg-white/10 hover:bg-white/20">CLOSE</button>
             </div>
-            <canvas
-              id={`renderer-mirror-fullscreen-${rid}`}
-              className="rounded overflow-hidden"
-              width={rw}
-              height={rh}
-              style={{
-                width: '90vw',
-                maxHeight: '85vh',
-                aspectRatio: `${rw} / ${rh}`,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
+            <canvas id={`renderer-mirror-fullscreen-${rid}`} className="rounded overflow-hidden"
+              width={rw} height={rh}
+              style={{ width: '90vw', maxHeight: '85vh', aspectRatio: `${rw} / ${rh}` }}
+              onClick={(e) => e.stopPropagation()} />
           </div>
         );
       })()}
