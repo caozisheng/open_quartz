@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.1b] — 2026-07-09
+
+### Features
+
+- **Test coverage boost** — 642 tests across 30 files (up from 550/29). Coverage: 80% lines, 79% statements, 69% branches, 65% functions.
+- **Coverage thresholds restored** — CI enforces 78% lines/statements, 55% branches, 64% functions.
+
+### Fixes
+
+- **ONNX overlay Y-flip** — `CanvasTexture.flipY` set to `true` to match the pipeline's OpenGL texture coordinate convention. Fixes inverted detection boxes in renderer output.
+- **Menu interaction** — submenu gap bridge prevents accidental dismiss when sliding from primary to secondary menu; backdrop click closes both menu levels; `onMouseLeave` moved to menu container.
+- **Renderer icon** — replaced emoji `🖥` with outline SVG matching other toolbar button icons.
+- **CI wasm snippets** — committed `rust/crates/yolo-detector/pkg/snippets/` to git so CI can resolve `inline0.js` import without `build:wasm`.
+
 ## [0.7.0b] — 2026-07-09
 
 ### Features

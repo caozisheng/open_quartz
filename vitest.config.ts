@@ -14,6 +14,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}'],
+    testTimeout: 10000,
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'text-summary', 'lcov', 'json-summary'],
@@ -31,6 +32,12 @@ export default defineConfig({
         'src/engine/videoSource.ts',
         'src/utils/tauri.ts',
       ],
+      thresholds: {
+        lines: 78,
+        statements: 78,
+        branches: 55,
+        functions: 64,
+      },
     },
   },
 });
