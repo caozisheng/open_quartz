@@ -13,6 +13,7 @@ export interface HostCallbacks {
   onOutput?: (nodeId: string, dataUrl: string) => void;
   onNodeError?: (nodeId: string, error: string) => void;
   onOutputSize?: (nodeId: string, w: number, h: number) => void;
+  onOutputData?: (nodeId: string, data: unknown) => void;
   onStateChange?: (state: HostState) => void;
 }
 
@@ -43,6 +44,8 @@ export class RealtimeHost {
       edges,
       this.callbacks.onNodeError,
       this.callbacks.onOutputSize,
+      this.callbacks.onOutputData,
+      this.callbacks.onOutput,
     );
     void this.reconcileVideoSources(nodes);
     this.clock.start();
@@ -163,6 +166,8 @@ export class RealtimeHost {
         this.edges,
         this.callbacks.onNodeError,
         this.callbacks.onOutputSize,
+        this.callbacks.onOutputData,
+        this.callbacks.onOutput,
       );
     }
 

@@ -42,6 +42,9 @@ export default function App() {
                 s.updateNodeData(nodeId, { resolvedWidth: w, resolvedHeight: h });
               }
             },
+            onOutputData: (nodeId, data) => {
+              useGraphStore.getState().setOutputData(nodeId, data);
+            },
           });
         }
         useGraphStore.getState().setCaptureScreenshot((id) => hostRef.current?.captureScreenshot(id) ?? null);

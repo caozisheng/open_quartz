@@ -36,6 +36,13 @@ export interface ExecutionPlan {
 export class ExecutionEngine {
   private renderer: WebGLRenderer | null = null;
   private running = false;
+  private onnxInFlight = new Set<string>();
+  private onnxCallbacks: {
+    onOutput?: (nodeId: string, dataUrl: string) => void;
+    onNodeError?: (nodeId: string, error: string) => void;
+    onOutputSize?: (nodeId: string, w: number, h: number) => void;
+    onOutputData?: (nodeId: string, data: unknown) => void;
+  } = {};
 
   constructor(canvas: HTMLCanvasElement) {
     try {
@@ -58,13 +65,11 @@ export class ExecutionEngine {
     edges: Edge[],
     onNodeError?: (nodeId: string, error: string) => void,
     onOutputSize?: (nodeId: string, width: number, height: number) => void,
+    onOutputData?: (nodeId: string, data: unknown) => void,
+    onOutput?: (nodeId: string, dataUrl: string) => void,
   ): ExecutionPlan | null {
     if (!this.renderer) return null;
-
-    const sortedIds = topologicalSort(nodes, edges);
-    const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-    const textureSources = new Map<string, TextureSource>();
-    const targets = new Map<string, THREE.WebGLRenderTarget>();
+    this.onnxCallbacks = { onOutput, onNodeError, onOutputSize, onOutputData };
     const materials = new Map<string, THREE.ShaderMaterial>();
     const upstreamSamplerBindings = new Map<string, Map<string, string>>();
     const scalarBindings = new Map<string, Map<string, unknown>>();
@@ -99,6 +104,10 @@ export class ExecutionEngine {
       }
     }
     this.renderer.setSize(maxW, maxH);
+    const sortedIds = topologicalSort(nodes, edges);
+    const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+    const textureSources = new Map<string, TextureSource>();
+    const targets = new Map<string, THREE.WebGLRenderTarget>();
 
     for (const nodeId of sortedIds) {
       const node = nodeMap.get(nodeId);
@@ -157,6 +166,11 @@ export class ExecutionEngine {
           const h = sourceTarget?.height ?? sourceNode?.data.imageHeight ?? sourceNode?.data.resolvedHeight;
           if (w && h) onOutputSize?.(nodeId, w, h);
         }
+        continue;
+      }
+
+      if (node.data.type === 'onnx') {
+        upstreamSamplerBindings.set(nodeId, upstreamMap);
         continue;
       }
 
@@ -235,6 +249,24 @@ export class ExecutionEngine {
 
       if (node.data.type === 'renderer') continue;
 
+      if (node.data.type === 'onnx') {
+        if (this.onnxInFlight.has(nodeId)) continue;
+        const upstreamMap = plan.upstreamSamplerBindings.get(nodeId);
+        const sourceId = upstreamMap?.values().next().value;
+        if (!sourceId) continue;
+        const src = plan.textureSources.get(sourceId);
+        if (!src) continue;
+        const tex = src.kind === 'fbo' ? src.target.texture : src.texture;
+        const srcW = src.kind === 'fbo' ? src.target.width : plan.defaultW;
+        const srcH = src.kind === 'fbo' ? src.target.height : plan.defaultH;
+        const scratchId = `onnx_src_${nodeId}`;
+        const scratchTarget = this.renderer.createTarget(scratchId, srcW, srcH, false, 'rgba8');
+        this.renderer.renderSampler2DInput(tex, scratchTarget);
+        const sourceCanvas = this.renderer.readTargetToCanvas(scratchTarget);
+        this.onnxInFlight.add(nodeId);
+        void this.runOnnxInference(plan, nodeId, node, sourceCanvas, srcW, srcH);
+        continue;
+      }
       const target = plan.targets.get(nodeId);
       if (!target) continue;
 
@@ -278,6 +310,42 @@ export class ExecutionEngine {
 
       this.renderer.renderWithMaterial(material, target);
       plan.textureSources.set(nodeId, { kind: 'fbo', target });
+    }
+  }
+
+  private async runOnnxInference(
+    plan: ExecutionPlan,
+    nodeId: string,
+    node: Node<ShaderNodeData>,
+    sourceCanvas: HTMLCanvasElement,
+    srcW: number,
+    srcH: number,
+  ): Promise<void> {
+    try {
+      const modelId = node.data.onnxModelId ?? DEFAULT_ONNX_MODEL_ID;
+      const descriptor = ONNX_MODELS[modelId];
+      if (!descriptor) throw new Error(`Unknown ONNX model: ${modelId}`);
+
+      const session = await this.getOnnxSession(descriptor);
+      if (node.data.onnxScoreThreshold !== undefined && node.data.onnxIouThreshold !== undefined) {
+        session.setThresholds(node.data.onnxScoreThreshold, node.data.onnxIouThreshold);
+      }
+
+      const result = await session.run(sourceCanvas, srcW, srcH);
+      const detections: OnnxDetection[] = result.detections;
+
+      const overlay = drawDetectionOverlay(sourceCanvas, srcW, srcH, detections);
+      plan.textureSources.set(nodeId, { kind: 'image', texture: overlay.texture });
+
+      this.onnxCallbacks.onOutput?.(nodeId, overlay.dataUrl);
+      this.onnxCallbacks.onOutputSize?.(nodeId, srcW, srcH);
+      this.onnxCallbacks.onOutputData?.(nodeId, { detections });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`ONNX error for node ${nodeId}:`, msg);
+      this.onnxCallbacks.onNodeError?.(nodeId, msg);
+    } finally {
+      this.onnxInFlight.delete(nodeId);
     }
   }
 
@@ -729,7 +797,7 @@ export class ExecutionEngine {
 }
 
 function isRenderableNode(node: Node<ShaderNodeData>): boolean {
-  return node.data.type === 'shader' || node.data.type === 'constant' || node.data.type === 'renderer';
+  return node.data.type === 'shader' || node.data.type === 'constant' || node.data.type === 'renderer' || node.data.type === 'onnx';
 }
 
 function setUniform(material: THREE.ShaderMaterial, key: string, value: unknown): void {
