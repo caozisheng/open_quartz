@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.7.0b] — 2026-07-09
+
+### Features
+
+- **Realtime rendering loop** — rAF-driven Host/Compositor architecture inspired by QC's `QCRenderer`. `PLAY / PAUSE / STOP` transport replaces legacy single-shot `RUN`.
+- **Time system** — Shadertoy-compatible builtin uniforms (`iTime`, `iTimeDelta`, `iFrame`, `iDate`, `iMouse`, `iResolution`) auto-injected when declared in shader. Per-node `iResolution` matches each shader's FBO dimensions.
+- **Renderer node** — explicit output viewer (QC's `QCView` equivalent). Green header, accepts upstream shader output via `sampler2D`. In-place preview on node or panel preview in side panel. No extra render pass — reads upstream FBO directly.
+- **Multi-renderer support** — each renderer node has its own mirror canvas; output via GPU→GPU `drawImage` blit. Multiple renderers can display simultaneously.
+- **Fullscreen live preview** — click FULLSCREEN on renderer panel preview to open live canvas overlay with SAVE button for frame capture as PNG.
+- **Video input** — new `video` input mode under SAMPLER2D. Supports camera (`getUserMedia`) and file upload. `HTMLVideoElement` → `THREE.VideoTexture`, auto-updates each frame. Video dimensions propagate to downstream shader default size.
+- **Video file persistence** — Tauri: stores absolute file path, restores via `convertFileSrc` on project load. Web: blob URL with reload prompt.
+- **GPU-only output path** — realtime renderer preview uses no `readPixels` / `toDataURL`. All output stays on GPU via mirror canvas blit.
+- **ONNX realtime support** — ONNX inference nodes now work in the realtime path with async non-blocking execution (1–N frame latency).
+- **Builtin uniform badges** — PortInspector shows `AUTO` badge on builtin uniforms (`iTime`, `iMouse`, etc.) indicating they are auto-injected by the engine.
+- **Clock** — `pause()` / `resume()` / `seek()` support. FPS calculated via sliding window average.
+- **MouseState** — Shadertoy `iMouse` convention (origin bottom-left, z/w for click state).
+
+### Breaking Changes
+
+- **RUN button removed** — single-shot execution UI eliminated. All rendering goes through `PLAY` which drives the realtime Host. Future single-frame needs will use `STEP` or `ScrubHost`.
+- **`isRunning` / `setRunning` removed from store** — replaced by `loopState: 'stopped' | 'playing' | 'paused'` with `play()` / `pause()` / `resume()` / `stop()` actions.
+
+### Fixes
+
+- **Stop/play lifecycle** — WebGL context preserved across stop/play cycles (`clearResources` instead of `dispose`). Canvas properly unmounted on stop and remounted on play.
+- **Video pause** — pausing the host now also pauses `<video>` elements; resume restarts them.
+- **Video source reconciliation** — async video init triggers plan recompile so textures appear without manual graph interaction.
+- **Shader `v_uv` redefinition** — `shaderCompiler` now strips user `in vec2 v_uv;` declarations to avoid GLSL redefinition errors.
+- **WebGL feedback loop guard** — `renderWithMaterial` checks for self-referencing texture/target before draw.
+- **Per-node iResolution** — each shader receives its own FBO dimensions instead of a global value, fixing UV scaling bugs on mixed-resolution graphs.
+- **autoSize respected** — shader nodes with `autoSize !== false` now correctly use upstream-derived default size instead of hardcoded 512×512.
+
 ## [0.6.0b] — 2026-07-08
 
 ### Fixes

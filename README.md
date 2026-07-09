@@ -5,31 +5,32 @@
 <h1 align="center">Open Quartz</h1>
 
 <p align="center">
-  A visual GLSL shader node editor inspired by Apple Quartz Composer.
+  A hardware-accelerated visual graph editor for image and video processing.
 </p>
 
 <p align="center">
   <img src="docs/screenshot.png" width="720" alt="Open Quartz screenshot">
 </p>
 
-Build and connect GLSL shaders visually using a node graph. Each node is a shader processing unit — edit its GLSL code, and input/output ports are auto-generated from `uniform`/`out` declarations. Connect nodes to create shader pipelines and see real-time WebGL output.
+Open Quartz is a node-based visual programming environment for real-time image and video processing. Build GPU-accelerated pipelines by connecting shader nodes, video/image inputs, ML inference nodes (ONNX), and renderer outputs on an infinite canvas. Inspired by Apple Quartz Composer and Shadertoy.
 
 ## Features
 
 ### Node Graph Editor
 - **Drag, connect, and arrange** shader nodes on an infinite canvas (React Flow)
-- **3 node types**: Shader (custom GLSL), Input (data sources), Output (render targets)
+- **4 node types**: Shader (custom GLSL), Input (data sources), Renderer (output viewer), ONNX (ML inference)
 - **Bezier curve edges** with type-safe connections — ports carry GLSL type metadata
 - **MiniMap** for graph overview navigation
 - **Box selection** for multi-node operations
 - **Fit-to-view** on load
 
 ### Input System
-- **Grouped INPUT menu** — inputs organized into SCALAR (float/int/bool), VECTOR (vec2/vec3/vec4), and SAMPLER2D (Image/Framebuffer) groups with hover-expand nested sub-menus
+- **Grouped INPUT menu** — inputs organized into SCALAR (float/int/bool), VECTOR (vec2/vec3/vec4), and SAMPLER2D (Image/Framebuffer/Video) groups with hover-expand nested sub-menus
 - **Image input** — load images as sampler2D textures, with read-only width/height display
 - **Framebuffer input** — load raw binary dump files as textures with configurable format (RGBA8 / RGBA32F / RG8 / RG32F / R8 / R32F / NV12), width, height, and stride
+- **Video input** — camera and file video as sampler2D textures via HTMLVideoElement / THREE.VideoTexture; video dimensions propagate to downstream shader default size
 - **Texture sampling config** — all sampler2D inputs support Filter (LINEAR / NEAREST) and Wrap (CLAMP / REPEAT / MIRROR) settings
-- **Immediate preview** — Image and Framebuffer inputs show preview thumbnails as soon as data is loaded, without pressing RUN
+- **Immediate preview** — Image, Framebuffer, and Video inputs show preview thumbnails as soon as data is loaded
 
 ### Node Inspector & Editor (Side Panel)
 - **Editable node label** and type badge
@@ -42,10 +43,25 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 - **Output Auto Size** — checkbox to auto-infer width/height from inputs; manual override available (1–8192 px)
 
 ### Preview Lightbox
-- **Full-screen image viewer** — click any preview to open with scroll-to-zoom, drag-to-pan, and double-click reset
+- **Full-screen image viewer** — click any image or video preview to open with scroll-to-zoom, drag-to-pan, and double-click reset
 - **Nearest-neighbor rendering** — pixelated display for accurate pixel inspection at zoom
 - **Save as PNG** — toolbar button with native save dialog (File System Access API) and fallback download
 - **Color Picker** — toggle crosshair mode to inspect pixel coordinates (x, y) and RGBA color values with floating tooltip and color swatch
+
+### Realtime Rendering
+- **rAF-driven rendering loop** with PLAY / PAUSE / STOP transport controls
+- **Host/Compositor architecture** inspired by Quartz Composer's QCRenderer — host drives the frame clock, compositor walks the node graph
+- **Shadertoy-compatible builtin uniforms**: `iTime`, `iTimeDelta`, `iFrame`, `iDate`, `iMouse`, `iResolution` — opt-in by declaring e.g. `uniform float iTime;` in your shader to receive auto-injected values
+- **GPU-only output path** — no `readPixels` in the realtime loop; preview via mirror canvas blit
+- **Clock with pause/resume/seek** — time freezes on PAUSE, resets on STOP, and can be seeked programmatically
+
+### Renderer Node
+- **Explicit output viewer** — the Quartz Composer QCView equivalent; green header distinguishes it from shader nodes
+- **Input**: single `sampler2D` from an upstream shader
+- **In-place preview** on the node canvas or **panel preview** in the side panel
+- **Multi-renderer support** — each renderer has its own independent mirror canvas via GPU→GPU blit (`drawImage`)
+- **No extra render pass** — reads the upstream FBO directly
+- **Fullscreen live preview** with SAVE button for frame capture
 
 ### Shader Engine
 - **FBO-based multi-pass rendering** via Three.js — each shader node renders to an offscreen framebuffer and passes results downstream
@@ -53,7 +69,8 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 - **Topological sort** ensures correct execution order through the graph
 - **Automatic uniform wiring** — connections map upstream output textures to downstream sampler uniforms
 - **Scalar uniform injection** — unconnected inputs are editable inline in the inspector
-- **Float render target readback** for preview generation
+- **Per-node iResolution** — each shader gets its own FBO dimensions, not a single global resolution
+- **Builtin uniform AUTO badges** — PortInspector shows AUTO badges for builtin uniforms (iTime, iMouse, etc.)
 - **GLSL 300 es** support
 
 ### Predefined Shader Templates (10)
@@ -73,6 +90,7 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 - **Bundled model: YOLOv8n** (80 COCO classes, ~6MB). Input port `image: sampler2D`, output ports `detections: roi` and `overlay: sampler2D`.
 - **Runtime**: `onnxruntime-web` (auto-loaded from `public/ort/ort.min.js` by the wasm bridge) driven by a Rust `wasm-pack` bundle (`rust/crates/yolo-detector`, git-dep on [`caozisheng/rimeflow-yolov8n`](https://github.com/caozisheng/rimeflow-yolov8n)) via `wasm_bindgen(inline_js)`. Prefers WebGPU EP with automatic fallback to WASM EP.
 - **Score/IoU thresholds** editable in the side panel; live detection list with class name, confidence, and normalized bbox.
+- **Realtime path** — ONNX nodes work in the realtime rendering loop with async non-blocking inference (1–N frame latency).
 - **Setup** (once per checkout):
   ```
   npm i -D onnxruntime-web
@@ -102,6 +120,7 @@ Build and connect GLSL shaders visually using a node graph. Each node is a shade
 - **Custom titlebar** — no system title bar; app header serves as the drag region
 - **macOS**: overlay title bar style with native traffic light controls
 - **Windows**: custom minimize/maximize/close buttons
+- **Video file persistence** — Tauri asset protocol (`convertFileSrc`) preserves absolute video file paths across sessions
 - Same feature set as the web version
 
 ## Getting Started

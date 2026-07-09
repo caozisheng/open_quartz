@@ -1,19 +1,22 @@
-# OpenQuartz — 可视化着色器节点编辑器
+# OpenQuartz — 硬件加速图像视频处理图编辑器
 
-> Version 0.0.1b — macOS 风格极简 Web 版 Quartz Composer
+> Version 0.7.0b — 受 Apple Quartz Composer 启发的可视化节点图编辑与运行环境
 
 ---
 
 ## 1. 项目概述
 
-OpenQuartz 是一个 Web 版可视化着色器（GLSL）节点编辑器，受 Apple Quartz Composer 启发。
-
+OpenQuartz 是一个基于 Web 的硬件加速图像和视频处理节点图编辑器与运行环境，受 Apple Quartz Composer 和 Shadertoy 启发。
 - 用户通过**节点图（DAG）**组织 GLSL shader 片段
 - 每个节点是一个可编程的 shader 处理单元
 - **Shader 即接口声明**：解析 GLSL `uniform` 自动生成输入端口，`out` 生成输出端口
 - 输入输出可互相连接，类型校验
 - 支持**工程文件保存/载入**：整个图结构 + 节点状态 + 输入值 + 图片数据序列化为 `.quartz.json` 文件
-- 最终实时渲染输出到 WebGL 预览
+- **实时渲染循环**：rAF 驱动的 Host/Compositor 架构，PLAY/PAUSE/STOP 三态控制
+- **Renderer 节点**：显式输出查看器（QC 的 QCView 等价物），直接读取上游 FBO 显示
+- **视频输入**：摄像头与文件视频作为 sampler2D 纹理源
+- **ONNX 推理节点**：异步机器学习推理，非阻塞，1-N 帧延迟
+- **时间系统**：Shadertoy 兼容的 iTime/iTimeDelta/iFrame/iDate/iMouse/iResolution 内置 uniform
 
 ---
 
@@ -45,22 +48,31 @@ OpenQuartz 是一个 Web 版可视化着色器（GLSL）节点编辑器，受 Ap
 ## 4. 核心数据模型
 
 ```typescript
-type DataType =
-  | 'float' | 'int' | 'bool'
+type GlslDataType =
+  | 'float' | 'int' | 'uint' | 'bool'
   | 'vec2' | 'vec3' | 'vec4'
   | 'ivec2' | 'ivec3' | 'ivec4'
+  | 'uvec2' | 'uvec3' | 'uvec4'
+  | 'bvec2' | 'bvec3' | 'bvec4'
   | 'mat2' | 'mat3' | 'mat4'
   | 'sampler2D' | 'samplerCube';
+
+// 非 GLSL 逻辑类型，可在 DAG 中流动但不能被 GLSL 采样
+type LogicalDataType = 'roi' | 'mesh' | 'json';
+
+type DataType = GlslDataType | LogicalDataType;
+
+type InputMode = 'image' | 'framebuffer' | 'video';
 
 interface Port {
   id: string;
   label: string;
   dataType: DataType;
   direction: 'input' | 'output';
-  defaultValue?: any;
+  defaultValue?: unknown;
 }
 
-type NodeType = 'shader' | 'input' | 'constant';
+type NodeType = 'shader' | 'input' | 'constant' | 'onnx' | 'renderer';
 
 interface ShaderNodeData {
   type: NodeType;
@@ -68,10 +80,33 @@ interface ShaderNodeData {
   shaderCode: string;
   inputs: Port[];
   outputs: Port[];
-  uniforms: Record<string, any>;
-  inputDataType?: DataType;       // input 节点专用
-  imageDataUrl?: string;          // sampler2D 输入图片
+  uniforms: Record<string, unknown>;
+  collapsed?: boolean;
+  inputDataType?: DataType;
+  inputMode?: InputMode;            // input 节点专用：image / framebuffer / video
+  imageDataUrl?: string;            // sampler2D 输入图片
   imageFileName?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  expanded?: boolean;               // 节点展开/折叠
+  // 视频字段
+  videoSourceType?: 'camera' | 'file';
+  videoUrl?: string;
+  videoFileName?: string;
+  videoFilePath?: string;           // Tauri: 绝对路径 + convertFileSrc
+  videoDeviceId?: string;
+  videoLoop?: boolean;
+  videoPlaybackRate?: number;
+  // ONNX 节点字段
+  onnxModelId?: string;
+  onnxScoreThreshold?: number;
+  onnxIouThreshold?: number;
+  onnxTargetSize?: number;
+  width?: number;
+  height?: number;
+  autoSize?: boolean;
+  resolvedWidth?: number;
+  resolvedHeight?: number;
 }
 
 interface ProjectFile {
@@ -79,8 +114,10 @@ interface ProjectFile {
   name: string;
   createdAt: string;
   updatedAt: string;
-  graph: { nodes: SerializedNode[]; edges: SerializedEdge[] };
-  images: Record<string, string>; // nodeId → base64 data URL
+  graph: {
+    nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data: ShaderNodeData }>;
+    edges: Array<{ id: string; source: string; sourceHandle: string; target: string; targetHandle: string }>;
+  };
 }
 ```
 
@@ -91,22 +128,26 @@ interface ProjectFile {
 ```
 <App>
   <Header />
-    ├── OPENQUARTZ v0.0.1b
+    ├── OPENQUARTZ v0.7.0b
     ├── 工程名输入框
-    ├── 添加节点：+SHADER / +INPUT / +IMAGE
+    ├── 添加节点：+SHADER / +INPUT / +IMAGE / +ONNX / +RENDERER
     ├── 文件：SAVE / LOAD
-    └── 运行：▶ RUN / ■ STOP / CLEAR
+    ├── 运行：▶ PLAY / ⏸ PAUSE / ■ STOP / CLEAR
+    └── FPS / TIME / FRAME 实时显示
   <main className="flex">
     <NodeGraph />                  ← React Flow 画布 (bg #e0e0e0 + cross grid)
       ├── <ShaderNode />           ← 紫 header，input/output 端口，叶子节点显示输出预览
-      ├── <InputNode />            ← 蓝 header，类型选择 + 值输入/图片加载
+      ├── <InputNode />            ← 蓝 header，类型选择 + 值输入/图片加载/视频输入
+      ├── <OnnxNode />             ← 黄 header，模型选择 + 参数配置
+      ├── <RendererNode />         ← 绿 header，显示上游 FBO 预览（mirror canvas blit）
       └── 贝塞尔曲线连线
     <SidePanel />                  ← 白底右侧面板
       ├── 节点信息（类型 + label + Delete）
       ├── <ShaderEditor />         ← CodeMirror 浅色主题
-      └── <PortInspector />        ← 端口列表 + uniform 值编辑
-    <OutputPanel />                ← 底部预览
+      ├── <PortInspector />        ← 端口列表 + uniform 值编辑 + builtin AUTO 徽章
+      └── <OnnxPanel />            ← ONNX 模型参数面板
   </main>
+  <canvas ref={canvasRef} />       ← 隐藏的 WebGL 后端画布
 </App>
 ```
 
@@ -130,12 +171,26 @@ out vec4 fragColor;            →  Port(vec4, "fragColor")
 ---
 
 ## 7. 渲染管线
-
-1. **拓扑排序** — Kahn 算法，按依赖顺序排列节点
-2. **编译 Shader**：用户代码 + 注入 `v_uv`/`fragColor`/uniforms，用 `RawShaderMaterial` + `GLSL3`
-3. **输入节点**：scalar 类型直接传值，sampler2D 加载图片到纹理
-4. **逐节点渲染到 FBO**：Three.js `WebGLRenderTarget`，上游纹理自动绑定到 uniform
-5. **OutputNode** 渲染到 screen / 预览 canvas
+1. **PLAY** — App 创建 `RealtimeHost`，传入隐藏 `<canvas>` 和回调
+2. **RealtimeHost** 持有 `Clock`、`MouseState`、`VideoSource` 集合，启动 `requestAnimationFrame` 循环
+3. **每帧 tick**：
+   - `Clock.tick(now)` → 产生 `TimeState`（iTime, iTimeDelta, iFrame, iDate, fps）
+   - 遍历 `VideoSource` 取最新 `THREE.VideoTexture`
+   - 组装 `FrameInputs { time, delta, frame, date, mouse, resolution, videoTextures }`
+   - 调用 `Compositor.render(inputs)`
+4. **Compositor** 包装 `ExecutionEngine`：
+   - `prepare(nodes, edges)` — 拓扑排序，编译 shader，分配 FBO
+   - `render(inputs)` — 执行 `engine.runFrame(plan, inputs)`
+   - 按拓扑序逐节点渲染到各自 FBO；上游纹理自动绑定到 uniform
+   - ONNX 节点：异步推理，非阻塞，使用上一帧结果（1-N 帧延迟）
+5. **Renderer 节点**（绿色 header，QC 的 QCView 等价物）：
+   - 不创建额外 FBO，直接读取上游 shader 的 FBO 纹理
+   - `renderRendererToScreen(nodeId)` 将上游 FBO blit 到主画布
+   - 通过 mirror canvas（`<canvas id="renderer-mirror-{nodeId}">`）GPU→GPU blit 显示
+   - 多个 Renderer 节点各自拥有独立的 mirror canvas
+6. **GPU-only 输出** — 实时路径不调用 `readPixels`/`toDataURL`，零 GPU→CPU readback
+7. **暂停/恢复** — `Clock` 支持 pause/resume/seek，暂停时冻结 `iTime`
+8. **热更新** — 播放中修改节点/连线，`updateGraph()` 标记 `needsRecompile`，下帧重编译
 
 ---
 
@@ -166,38 +221,58 @@ out vec4 fragColor;            →  Port(vec4, "fragColor")
 ```
 open-quartz/
 ├── DESIGN.md
+├── CHANGELOG.md
 ├── index.html
 ├── package.json
 ├── vite.config.ts
 ├── tsconfig.json / tsconfig.app.json / tsconfig.node.json
+├── src-tauri/                        ← Tauri 桌面端（可选）
+│   ├── tauri.conf.json
+│   └── Cargo.toml
 ├── src/
 │   ├── main.tsx
-│   ├── App.tsx
+│   ├── App.tsx                       ← RealtimeHost 生命周期管理
 │   ├── index.css                     ← Tailwind 入口 + React Flow 样式重置
 │   ├── version.ts                    ← 版本号
 │   ├── components/
-│   │   ├── Header.tsx                ← macOS 菜单栏风格
+│   │   ├── Header.tsx                ← macOS 菜单栏 + PLAY/PAUSE/STOP + FPS
 │   │   ├── NodeGraph/
 │   │   │   ├── index.tsx             ← ReactFlow 容器
 │   │   │   └── nodes/
 │   │   │       ├── ShaderNode.tsx
 │   │   │       ├── InputNode.tsx
+│   │   │       ├── OnnxNode.tsx      ← ONNX 推理节点
+│   │   │       └── RendererNode.tsx  ← 输出查看器（mirror canvas blit）
 │   │   ├── SidePanel/
 │   │   │   ├── index.tsx
 │   │   │   ├── ShaderEditor.tsx      ← CodeMirror 6
-│   │   │   └── PortInspector.tsx
-│   │   └── OutputPanel.tsx
+│   │   │   ├── PortInspector.tsx     ← uniform 编辑 + builtin AUTO 徽章
+│   │   │   └── OnnxPanel.tsx         ← ONNX 模型参数
+│   │   └── ImageLightbox.tsx
 │   ├── engine/
+│   │   ├── realtimeHost.ts           ← rAF 循环 + Clock/Mouse/Video 管理
+│   │   ├── compositor.ts             ← 组合器：包装 ExecutionEngine
+│   │   ├── clock.ts                  ← 时钟：iTime/iTimeDelta/iFrame/iDate/fps
+│   │   ├── mouseState.ts             ← 鼠标状态：iMouse（Shadertoy 约定）
+│   │   ├── videoSource.ts            ← 视频源：HTMLVideoElement → THREE.VideoTexture
+│   │   ├── executionEngine.ts        ← 执行引擎：编译/FBO 分配/逐帧渲染
 │   │   ├── shaderParser.ts           ← 正则解析 GLSL
 │   │   ├── shaderCompiler.ts         ← RawShaderMaterial 编译
 │   │   ├── graphExecutor.ts          ← 拓扑排序
 │   │   ├── webglRenderer.ts          ← Three.js FBO 管线
-│   │   └── executionEngine.ts        ← 执行引擎
+│   │   ├── onnxRegistry.ts           ← ONNX 模型注册表
+│   │   ├── onnxSession.ts            ← ONNX Runtime 会话管理
+│   │   ├── onnxOverlay.ts            ← ONNX 检测结果叠加渲染
+│   │   ├── predefinedShaders.ts      ← 预设 shader
+│   │   ├── shaderLinter.ts           ← Shader 语法检查
+│   │   └── shaderCompletions.ts      ← Shader 自动补全
 │   ├── store/
 │   │   └── useGraphStore.ts          ← Zustand 全局状态
 │   ├── utils/
 │   │   ├── graphUtils.ts
-│   │   └── projectIO.ts              ← 序列化/反序列化
+│   │   ├── projectIO.ts              ← 序列化/反序列化
+│   │   ├── rawPreview.ts             ← 原始数据预览
+│   │   └── tauri.ts                  ← Tauri 文件路径转换
 │   └── types/
 │       └── index.ts                  ← 类型定义 + DATA_TYPE_COLORS
 ```
@@ -210,17 +285,29 @@ open-quartz/
 |---|---|
 | Vite + React + TS + Tailwind 脚手架 | ✅ |
 | React Flow 节点图 + 自定义节点 | ✅ |
-| 两种节点：Shader / Input（无独立 Output 节点） | ✅ |
+| 五种节点：Shader / Input / Constant / ONNX / Renderer | ✅ |
 | GLSL 正则解析（uniform / out） | ✅ |
 | Shader 编译（RawShaderMaterial + GLSL3） | ✅ |
 | WebGL FBO 渲染管线 | ✅ |
 | 拓扑排序执行引擎 | ✅ |
 | CodeMirror shader 编辑器 | ✅ |
-| PortInspector uniform 值编辑 | ✅ |
+| PortInspector uniform 值编辑 + builtin AUTO 徽章 | ✅ |
 | InputNode 图片加载 + 缩略图 | ✅ |
 | 工程文件保存/载入 .quartz.json | ✅ |
 | macOS 极简 UI 风格 | ✅ |
 | 版本管理（version.ts） | ✅ |
+| 实时渲染循环（RealtimeHost + rAF） | ✅ |
+| Renderer 节点（mirror canvas blit） | ✅ |
+| 视频输入（摄像头 + 文件） | ✅ |
+| ONNX 推理节点（异步非阻塞） | ✅ |
+| 时间系统（iTime/iTimeDelta/iFrame/iDate） | ✅ |
+| 多 Renderer 支持（各自独立 mirror canvas） | ✅ |
+| PLAY/PAUSE/STOP 三态传输控制 | ✅ |
+| Clock 暂停/恢复/seek | ✅ |
+| MouseState（Shadertoy iMouse 约定） | ✅ |
+| 每节点 iResolution（各 shader 独立 FBO 尺寸） | ✅ |
+| 视频尺寸向下游传播 | ✅ |
+| Tauri 桌面端支持（可选） | ✅ |
 
 ---
 
@@ -230,22 +317,29 @@ open-quartz/
 |---|---|---|
 | 节点渲染 | 自定义组件 + Tailwind | 完全控制外观，不依赖 React Flow 默认主题 |
 | Shader 编译 | RawShaderMaterial + GLSL3 | 避免 Three.js 自动注入与 #version 冲突 |
-| WebGL 上下文管理 | 单个 canvas + CSS overlay | 避免 2D/WebGL 上下文冲突 |
+| WebGL 上下文管理 | 单个隐藏 canvas + mirror blit | 避免多上下文，GPU→GPU 拷贝 |
 | Handle 定位 | position:relative 父容器 | 确保多端口各占一行，不重叠 |
 | 边类型 | bezier | 视觉效果流畅 |
 | UI 框架 | 纯 Tailwind，无组件库 | 轻量，macOS 风格自由定制 |
 | FBO 管线 | 零冗余 FBO，叶子 shader 即输出点 | 业务性能最优（见下文） |
-| 节点架构 | 无独立 Output 节点，shader 直接输出 | 消除 passthrough FBO 拷贝 |
+| 节点架构 | Renderer 节点读取上游 FBO，无额外渲染 pass | 零拷贝输出，GPU-only |
 | PixelRatio | 离屏管线固定 pixelRatio=1 | FBO 渲染不需要 DPI 缩放 |
+| Host/Compositor 分离 | RealtimeHost 驱动循环，Compositor 封装渲染 | 关注点分离：时间/输入 vs 图执行 |
+| Mirror Canvas Blit | drawImage(glCanvas) GPU→GPU | 多 Renderer 各自独立画布，无需多 WebGL 上下文 |
+| ONNX 异步推理 | async inference + 上一帧结果 | 非阻塞，不卡主渲染循环，1-N 帧延迟 |
+| GPU-only 输出 | 实时路径零 readPixels | 消除 GPU→CPU readback 开销 |
 
 ---
 
 ## 12. 渲染管线设计原则
 
-**核心原则：零冗余 FBO，业务性能最优。**
+**核心原则：零冗余 FBO，GPU-only 输出，业务性能最优。**
 
-- 无独立 Output 节点。DAG 中的叶子 shader 节点（无下游 shader/constant 消费其输出）即为输出点，负责 FBO readback 和预览生成。
+- 无独立 Output 节点。Renderer 节点直接读取上游 shader 的 FBO，不创建额外渲染 pass。
 - 管线中不创建任何不必要的中间 FBO。每个 FBO 的存在必须有明确的业务语义（输入纹理缓存、或多级 shader 链的中间结果）。
-- 所有 FBO 的分辨率由叶子 shader 的输出配置决定（width/height/autoSize），从叶子反向传播到上游节点。shader 在目标分辨率下逐像素执行，不做事后缩放。
+- **每节点 iResolution**：每个 shader 在其自身 FBO 尺寸下执行，分辨率不是全局的。Renderer 节点跟随上游 shader 的 FBO 尺寸。
 - 离屏渲染管线使用 `pixelRatio=1`，不受屏幕 DPI 影响。FBO 尺寸即像素尺寸，所见即所得。
-- 工程文件版本号（当前 `0.2.0`）随数据模型变更递增，LOAD 时严格校验版本，不兼容则报错拒绝加载。
+- **GPU-only 输出**：实时渲染路径不调用 `readPixels`/`toDataURL`，预览通过 mirror canvas 的 `drawImage` 实现 GPU→GPU blit。
+- **Renderer 跟随上游尺寸**：Renderer 节点不定义自己的分辨率，完全继承上游 shader FBO 的宽高。
+- 视频输入尺寸自动传播到下游 shader 的默认 FBO 大小。
+- 工程文件版本号随数据模型变更递增，LOAD 时严格校验版本，不兼容则报错拒绝加载。
