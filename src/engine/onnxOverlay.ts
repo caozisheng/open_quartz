@@ -59,6 +59,6 @@ export function drawDetectionOverlay(
 
   const texture = new THREE.CanvasTexture(out);
   texture.needsUpdate = true;
-  texture.flipY = false;
+  texture.flipY = true;
   return { dataUrl: out.toDataURL('image/png'), texture, canvas: out };
 }
