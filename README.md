@@ -113,17 +113,30 @@ npm run dev
 
 Open http://localhost:5173 in your browser.
 
+### ONNX Support (optional)
+
+To use ONNX inference nodes (e.g. YOLOv8n object detection), run these once after checkout:
+
+```bash
+npm i -D onnxruntime-web
+npm run copy:ort       # populates public/ort/
+npm run build:wasm     # builds rust/crates/yolo-detector/pkg (requires wasm-pack)
+```
+
+See `docs/ONNX_NODE_DESIGN.md` for details.
+
 ## Usage
 
 1. Click **SHADER** dropdown to pick from predefined templates or create a custom shader
 2. Click **INPUT** dropdown and hover a group (SCALAR / VECTOR / SAMPLER2D) to add input nodes
-3. Click **OUTPUT** to add an output node
+3. Add a **RENDERER** node to view shader output — each renderer provides an independent preview
 4. Select a shader node to edit its GLSL code in the right panel
 5. Drag between port handles to connect nodes
 6. Edit uniform values inline in the port inspector
-7. Click **RUN** to execute the graph and see output
-8. Click the output preview to open the lightbox — use the toolbar to save or inspect pixel colors
-9. Click **SAVE** to download a `.quartz.json` project file, or **LOAD** to restore one
+7. Click **PLAY** to start the realtime rendering loop; **PAUSE** to freeze, **STOP** to reset
+8. Use `uniform float iTime;` / `uniform vec4 iMouse;` / `uniform vec3 iResolution;` in shaders for time, mouse, and resolution — declared uniforms are auto-injected
+9. Click the renderer preview or **FULLSCREEN** to open a live fullscreen view; **SAVE** to export a frame as PNG
+10. Click **SAVE** to download a `.quartz.json` project file, or **LOAD** to restore one
 
 ## Desktop app (Tauri)
 
