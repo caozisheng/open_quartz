@@ -343,3 +343,119 @@ open-quartz/
 - **Renderer 跟随上游尺寸**：Renderer 节点不定义自己的分辨率，完全继承上游 shader FBO 的宽高。
 - 视频输入尺寸自动传播到下游 shader 的默认 FBO 大小。
 - 工程文件版本号随数据模型变更递增，LOAD 时严格校验版本，不兼容则报错拒绝加载。
+
+---
+
+## 13. Math 节点设计方案（计划中）
+
+### 背景
+
+QC 的 Math/Logic patch 是纯 CPU 运算节点——接收标量/向量输入，执行数学运算，输出结果。不走 GPU shader 管线。QC 的 Math patch 是宽类型的：一个 `Add` patch 既能加两个 float 也能加两个 vec3。
+
+### 设计原则
+
+1. **Math 是 CPU 节点，不是 shader** — 不编译 GLSL，不分配 FBO，不走 GPU 管线
+2. **宽类型匹配** — 端口声明为 `'auto'` 类型，实际类型从连线对端推定
+3. **类型提升规则** — 遵循 GLSL 隐式转换：`int → float`，`float → vecN`（broadcast），`vecN + vecN → vecN`（逐分量）
+4. **仅对 Math 节点放宽连线规则** — 其他节点类型仍严格匹配
+
+### 数据模型
+
+```typescript
+type NodeType = 'shader' | 'input' | 'constant' | 'onnx' | 'renderer' | 'math';
+
+// Math 节点专用字段
+interface ShaderNodeData {
+  // ... 现有字段
+  mathOp?: string;              // 运算标识：'add' | 'multiply' | 'sin' | 'clamp' | ...
+}
+
+// 新增特殊 DataType
+type DataType = GlslDataType | LogicalDataType | 'auto';
+```
+
+### 端口类型推定
+
+Math 节点的端口声明为 `dataType: 'auto'`：
+
+```
+未连线时：          连线后：
+┌─────────┐        ┌─────────┐
+│  Add     │        │  Add     │
+│ a: auto ─┤        │ a: vec3 ─┤ ← 上游是 vec3
+│ b: auto ─┤        │ b: float─┤ ← 上游是 float
+│─ out:auto│        │─ out:vec3│ ← 提升为最宽类型
+└─────────┘        └─────────┘
+```
+
+推定规则：
+1. `prepare()` 时遍历 Math 节点的连线
+2. 输入端口类型 = 对端输出端口的 `dataType`
+3. 输出端口类型 = 所有输入类型的最宽类型（`float < vec2 < vec3 < vec4`，`int → float`）
+4. 未连线的输入用 `float` 作为默认
+
+### 连线规则放宽
+
+`onConnect` 中：
+- 如果 source 或 target 的端口是 `'auto'` 类型 → 允许任何标量/向量连接
+- 其他节点的端口仍严格类型匹配
+- sampler2D / samplerCube 不允许连到 Math 端口（Math 不处理纹理）
+
+### 引擎执行
+
+`runFrame()` 中 Math 节点的处理：
+
+```
+1. 收集输入值：
+   - 从上游 Input 节点的 uniforms 取值
+   - 从上游 System 节点的 FrameInputs 取值
+   - 从上游 Math 节点的计算结果取值
+
+2. 类型转换 + broadcast：
+   - int → float
+   - float → vecN: broadcast 到 [x, x, x, x]
+   - vecN → vecM (N < M): 用 0 补齐
+
+3. CPU 计算：
+   - 纯 JS 运算，按 mathOp 分发
+   - 结果存入 plan 的值映射表
+
+4. 下游 shader 消费时：
+   - 和消费 Input 节点标量值一样
+   - 通过 scalarBindings 注入到 shader uniform
+```
+
+### Math 运算库
+
+分类与 QC 对齐：
+
+| 类别 | 运算 | 输入 → 输出 |
+|---|---|---|
+| **算术** | Add, Subtract, Multiply, Divide, Negate | (a, b) → a⊕b |
+| **取整** | Floor, Ceil, Round, Fract, Mod | (a) → a' 或 (a, b) → a' |
+| **范围** | Min, Max, Clamp, Saturate, Step, Smoothstep | (a, b) → a' |
+| **插值** | Mix (Lerp), Map Range | (a, b, t) → a' |
+| **三角** | Sin, Cos, Tan, Asin, Acos, Atan, Atan2 | (a) → a' |
+| **指数** | Pow, Sqrt, Exp, Log, Abs, Sign | (a) → a' |
+| **向量** | Dot, Cross, Length, Normalize, Distance, Reflect | (a, b) → scalar/vector |
+
+### UI
+
+- **节点外观**：橙色 header，标题显示运算名称（如 "Add"、"Sin"）
+- **菜单**：SOURCE 和 SHADER 之间新增 MATH 按钮，按类别分组子菜单
+- **SidePanel**：显示端口列表 + 推定类型 + 常量输入编辑（未连线的输入可手动设值）
+- **节点上显示运算符号**：如 `+` `×` `sin` 等
+
+### 典型使用场景
+
+```
+Time → Math(Multiply, b=0.5) → Shader.speed     # 半速时间
+Time → Math(Sin) → Math(Add, b=0.5) → Shader.x   # 正弦振荡 0..1
+Mouse.xy → Math(Divide, b=resolution) → Shader.uv # 归一化鼠标坐标
+```
+
+### 实施阶段
+
+1. **Phase 1**：新增 `'math'` 节点类型 + `'auto'` DataType + 连线放宽 + `runFrame` CPU 执行分支 + 基础算术运算（Add/Subtract/Multiply/Divide）
+2. **Phase 2**：完整运算库（三角/指数/向量/范围/插值）+ MathNode UI 组件
+3. **Phase 3**：端口类型推定 + 类型提升 + broadcast 逻辑
