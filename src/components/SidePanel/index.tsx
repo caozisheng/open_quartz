@@ -148,8 +148,9 @@ export function SidePanel() {
   if (data.type === 'input' && data.inputMode === 'system') {
     const { currentTime, currentFrame, loopState } = useGraphStore.getState();
     const source = data.systemSource;
+    const outputType = source === 'mouse' ? 'vec4' : source === 'resolution' ? 'vec3' : 'float';
     const formatVal = (): string => {
-      if (loopState !== 'playing') return '— (stopped)';
+      if (loopState !== 'playing') return '—';
       switch (source) {
         case 'time': return currentTime.toFixed(3) + 's';
         case 'timeDelta': return '~0.016s';
@@ -161,26 +162,18 @@ export function SidePanel() {
     };
     sections.push({
       id: 'systemsource',
-      title: 'SYSTEM SOURCE',
+      title: data.label.toUpperCase(),
       content: (
         <div className="px-4 py-3 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-[#86868b] font-medium">SOURCE</span>
-            <span className="text-[11px] text-[#1d1d1f] font-medium">{source?.toUpperCase() ?? '—'}</span>
+            <span className="text-[10px] text-[#86868b] font-medium">OUTPUT TYPE</span>
+            <span className="text-[11px] text-[#1d1d1f] font-mono">{outputType}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-[#86868b] font-medium">TYPE</span>
-            <span className="text-[11px] text-[#1d1d1f]">
-              {source === 'mouse' ? 'vec4' : source === 'resolution' ? 'vec3' : 'float'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-[#86868b] font-medium">VALUE</span>
+            <span className="text-[10px] text-[#86868b] font-medium">CURRENT VALUE</span>
             <span className="text-[13px] text-[#1d1d1f] font-mono tabular-nums">{formatVal()}</span>
           </div>
-          <div className="text-[9px] text-[#aeaeb2] mt-1">
-            Read-only. Value updated automatically each frame during playback.
-          </div>
+          <div className="text-[9px] text-[#aeaeb2]">Read-only · auto-updated each frame</div>
         </div>
       ),
     });

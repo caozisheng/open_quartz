@@ -180,19 +180,18 @@ export function InputNode({ id, data, selected }: NodeProps<InputNodeType>) {
         style={{ height: HEADER_H, backgroundColor: accent }}
       >
         <span className="text-xs font-semibold text-white">
-          {isSystem ? 'SYSTEM' : isVideo ? 'VIDEO' : isFramebuffer ? 'FRAMEBUFFER' : currentType === 'sampler2D' ? 'IMAGE' : currentType.toUpperCase()}
+          {isSystem ? data.label.toUpperCase() : isVideo ? 'VIDEO' : isFramebuffer ? 'FRAMEBUFFER' : currentType === 'sampler2D' ? 'IMAGE' : currentType.toUpperCase()}
         </span>
-        <span className="ml-auto text-[10px] text-white/60 font-medium">{data.label}</span>
+        {!isSystem && <span className="ml-auto text-[10px] text-white/60 font-medium">{data.label}</span>}
       </div>
 
       {isSystem ? (
-        /* System source: read-only live value display */
+        /* System source: read-only live value */
         <div className="flex items-stretch">
-          <div className="flex-1 px-3 py-2">
-            <div className="text-[10px] text-[#86868b] font-medium mb-1">{data.systemSource?.toUpperCase() ?? 'SYSTEM'}</div>
-            <div className="text-[13px] text-[#1d1d1f] font-mono tabular-nums">
+          <div className="flex-1 flex items-center px-3" style={{ minHeight: ROW_H }}>
+            <span className="text-[13px] text-[#1d1d1f] font-mono tabular-nums">
               {loopState === 'playing' ? formatSystemValue(data.systemSource, currentTime, currentFrame) : '—'}
-            </div>
+            </span>
           </div>
           {data.outputs[0] && (
             <div className="relative w-3 flex items-center">
