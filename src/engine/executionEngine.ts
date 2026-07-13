@@ -22,6 +22,7 @@ export interface ExecutionPlan {
   edges: Edge[];
   materials: Map<string, THREE.ShaderMaterial>;
   upstreamSamplerBindings: Map<string, Map<string, string>>;
+  scalarUpstream: Map<string, Map<string, string>>; // nodeId -> (uniformName -> upstream nodeId) for scalar connections
   scalarBindings: Map<string, Map<string, unknown>>;
   selfUniforms: Map<string, Record<string, unknown>>;
   targets: Map<string, THREE.WebGLRenderTarget>;
@@ -74,6 +75,7 @@ export class ExecutionEngine {
     this.onnxCallbacks = { onOutput, onNodeError, onOutputSize, onOutputData };
     const materials = new Map<string, THREE.ShaderMaterial>();
     const upstreamSamplerBindings = new Map<string, Map<string, string>>();
+    const scalarUpstream = new Map<string, Map<string, string>>();
     const scalarBindings = new Map<string, Map<string, unknown>>();
     const selfUniforms = new Map<string, Record<string, unknown>>();
     const builtinPorts = new Map<string, Set<string>>();
@@ -211,6 +213,7 @@ export class ExecutionEngine {
 
         materials.set(nodeId, material);
         upstreamSamplerBindings.set(nodeId, compiled.upstreamSamplers);
+        scalarUpstream.set(nodeId, upstreamMap);
         scalarBindings.set(nodeId, upstreamScalarValues);
         selfUniforms.set(nodeId, node.data.uniforms);
         builtinPorts.set(nodeId, builtin);
@@ -236,6 +239,7 @@ export class ExecutionEngine {
       edges,
       materials,
       upstreamSamplerBindings,
+      scalarUpstream,
       scalarBindings,
       selfUniforms,
       targets,
@@ -344,7 +348,7 @@ export class ExecutionEngine {
       if (scalars) {
         for (const [key, val] of scalars) {
           // For math upstream, inject live value from mathValues
-          const upstreamId = plan.upstreamSamplerBindings.get(nodeId)?.get(key);
+          const upstreamId = plan.scalarUpstream.get(nodeId)?.get(key);
           if (upstreamId && plan.mathValues.has(upstreamId)) {
             setUniform(material, key, normalizeUniformValue(plan.mathValues.get(upstreamId)));
           } else {
