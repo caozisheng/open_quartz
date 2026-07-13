@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { ShaderNodeData } from '../../../types';
+import type { ShaderNodeData, DataType } from '../../../types';
 import { DATA_TYPE_COLORS } from '../../../types';
 import { useGraphStore } from '../../../store/useGraphStore';
 import { MATH_OPS } from '../../../engine/mathOps';
@@ -24,16 +24,38 @@ type MathNodeType = Node<ShaderNodeData>;
 
 export function MathNode({ data, selected }: NodeProps<MathNodeType>) {
   const edges = useGraphStore((s) => s.edges);
+  const nodes = useGraphStore((s) => s.nodes);
   const op = data.mathOp ? MATH_OPS[data.mathOp] : undefined;
   const symbol = data.mathOp ? (OP_SYMBOLS[data.mathOp] ?? data.label) : '?';
 
+  // Infer actual type from connected peer
+  function inferType(portId: string, isInput: boolean): DataType {
+    if (isInput) {
+      const edge = edges.find((e) => e.targetHandle === portId);
+      if (edge) {
+        const srcNode = nodes.find((n) => n.id === edge.source);
+        if (srcNode) {
+          const srcPort = srcNode.data.outputs.find((p) => p.id === edge.sourceHandle);
+          if (srcPort && srcPort.dataType !== 'auto') return srcPort.dataType;
+        }
+      }
+    } else {
+      // Output = widest inferred input type
+      const widthOrder: DataType[] = ['bool', 'int', 'uint', 'float', 'vec2', 'vec3', 'vec4'];
+      let widest: DataType = 'auto';
+      for (const inp of data.inputs) {
+        const t = inferType(inp.id, true);
+        if (t !== 'auto' && widthOrder.indexOf(t) > widthOrder.indexOf(widest)) widest = t;
+      }
+      return widest;
+    }
+    return 'auto';
+  }
+
   function portColor(portId: string, isInput: boolean): string {
-    const port = isInput
-      ? data.inputs.find((p) => p.id === portId)
-      : data.outputs.find((p) => p.id === portId);
-    if (!port) return MATH_ACCENT;
-    if (port.dataType === 'auto') return MATH_ACCENT;
-    return DATA_TYPE_COLORS[port.dataType] ?? MATH_ACCENT;
+    const inferred = inferType(portId, isInput);
+    if (inferred !== 'auto') return DATA_TYPE_COLORS[inferred] ?? MATH_ACCENT;
+    return MATH_ACCENT;
   }
 
   return (
