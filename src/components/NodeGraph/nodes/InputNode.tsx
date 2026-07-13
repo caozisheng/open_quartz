@@ -39,9 +39,23 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
+function formatSystemValue(source: string | undefined, time: number, frame: number): string {
+  switch (source) {
+    case 'time': return time.toFixed(3) + 's';
+    case 'timeDelta': return '~0.016';
+    case 'frame': return String(frame);
+    case 'mouse': return '—';
+    case 'resolution': return '—';
+    default: return '—';
+  }
+}
+
 export function InputNode({ id, data, selected }: NodeProps<InputNodeType>) {
   const updateNodeData = useGraphStore((s) => s.updateNodeData);
   const nodeErrors = useGraphStore((s) => s.nodeErrors);
+  const currentTime = useGraphStore((s) => s.currentTime);
+  const currentFrame = useGraphStore((s) => s.currentFrame);
+  const loopState = useGraphStore((s) => s.loopState);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rawFileInputRef = useRef<HTMLInputElement>(null);
   const videoFileInputRef = useRef<HTMLInputElement>(null);
@@ -49,9 +63,10 @@ export function InputNode({ id, data, selected }: NodeProps<InputNodeType>) {
   const currentType = (data.inputDataType ?? 'float') as DataType;
   const isFramebuffer = data.inputMode === 'framebuffer';
   const isVideo = data.inputMode === 'video';
+  const isSystem = data.inputMode === 'system';
   const error = nodeErrors[id];
   const hasNoValue = currentType === 'sampler2D' && !data.imageDataUrl && !data.rawDataUrl && !data.videoUrl;
-  const accent = error ? '#ff3b30' : hasNoValue ? '#8e8e93' : '#007aff';
+  const accent = isSystem ? '#34c759' : error ? '#ff3b30' : hasNoValue ? '#8e8e93' : '#007aff';
 
   const fbPreview = useMemo(() => {
     if (!isFramebuffer || !data.rawDataUrl || !data.fbWidth || !data.fbHeight) return null;
@@ -165,12 +180,33 @@ export function InputNode({ id, data, selected }: NodeProps<InputNodeType>) {
         style={{ height: HEADER_H, backgroundColor: accent }}
       >
         <span className="text-xs font-semibold text-white">
-          {isVideo ? 'VIDEO' : isFramebuffer ? 'FRAMEBUFFER' : currentType === 'sampler2D' ? 'IMAGE' : currentType.toUpperCase()}
+          {isSystem ? 'SYSTEM' : isVideo ? 'VIDEO' : isFramebuffer ? 'FRAMEBUFFER' : currentType === 'sampler2D' ? 'IMAGE' : currentType.toUpperCase()}
         </span>
         <span className="ml-auto text-[10px] text-white/60 font-medium">{data.label}</span>
       </div>
 
-      {currentType === 'sampler2D' && isFramebuffer ? (
+      {isSystem ? (
+        /* System source: read-only live value display */
+        <div className="flex items-stretch">
+          <div className="flex-1 px-3 py-2">
+            <div className="text-[10px] text-[#86868b] font-medium mb-1">{data.systemSource?.toUpperCase() ?? 'SYSTEM'}</div>
+            <div className="text-[13px] text-[#1d1d1f] font-mono tabular-nums">
+              {loopState === 'playing' ? formatSystemValue(data.systemSource, currentTime, currentFrame) : '—'}
+            </div>
+          </div>
+          {data.outputs[0] && (
+            <div className="relative w-3 flex items-center">
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={data.outputs[0].id}
+                className="!w-2.5 !h-2.5 !border-2 !border-white"
+                style={{ backgroundColor: '#34c759' }}
+              />
+            </div>
+          )}
+        </div>
+      ) : currentType === 'sampler2D' && isFramebuffer ? (
         <div className="flex items-stretch">
           <div onClick={() => rawFileInputRef.current?.click()} className="cursor-pointer flex-1 min-w-0">
             <input ref={rawFileInputRef} type="file" onChange={handleRawFileChange} className="hidden" />

@@ -144,6 +144,48 @@ export function SidePanel() {
     });
   }
 
+  // --- SYSTEM SOURCE (read-only live values) ---
+  if (data.type === 'input' && data.inputMode === 'system') {
+    const { currentTime, currentFrame, loopState } = useGraphStore.getState();
+    const source = data.systemSource;
+    const formatVal = (): string => {
+      if (loopState !== 'playing') return '— (stopped)';
+      switch (source) {
+        case 'time': return currentTime.toFixed(3) + 's';
+        case 'timeDelta': return '~0.016s';
+        case 'frame': return String(currentFrame);
+        case 'mouse': return 'vec4 (live)';
+        case 'resolution': return 'vec3 (live)';
+        default: return '—';
+      }
+    };
+    sections.push({
+      id: 'systemsource',
+      title: 'SYSTEM SOURCE',
+      content: (
+        <div className="px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-[#86868b] font-medium">SOURCE</span>
+            <span className="text-[11px] text-[#1d1d1f] font-medium">{source?.toUpperCase() ?? '—'}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-[#86868b] font-medium">TYPE</span>
+            <span className="text-[11px] text-[#1d1d1f]">
+              {source === 'mouse' ? 'vec4' : source === 'resolution' ? 'vec3' : 'float'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-[#86868b] font-medium">VALUE</span>
+            <span className="text-[13px] text-[#1d1d1f] font-mono tabular-nums">{formatVal()}</span>
+          </div>
+          <div className="text-[9px] text-[#aeaeb2] mt-1">
+            Read-only. Value updated automatically each frame during playback.
+          </div>
+        </div>
+      ),
+    });
+  }
+
   // --- PORTS (all nodes) ---
   sections.push({
     id: 'ports',
