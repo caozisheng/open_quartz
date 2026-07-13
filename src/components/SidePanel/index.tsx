@@ -587,7 +587,7 @@ export function SidePanel() {
           ) : isSampler2D ? (
             inputPreviewSrc ? (
               data.inputMode === 'video' ? (
-                <video src={inputPreviewSrc} muted playsInline preload="metadata"
+                <video src={`${inputPreviewSrc}#t=0.1`} muted playsInline preload="metadata"
                   onClick={() => setLightboxSrc(inputPreviewSrc)}
                   className="max-w-full max-h-full object-contain rounded border border-[#d2d2d7] cursor-pointer hover:opacity-90 transition-opacity" />
               ) : (
