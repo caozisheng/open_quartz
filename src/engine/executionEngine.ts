@@ -6,6 +6,8 @@ import { WebGLRenderer } from './webglRenderer';
 import { compileNodeShader, validateFragmentShader } from './shaderCompiler';
 import { topologicalSort } from './graphExecutor';
 import { ONNX_MODELS, DEFAULT_ONNX_MODEL_ID, type OnnxModelDescriptor } from './onnxRegistry';
+import { ONNX_CATALOG } from './onnxCatalog';
+import { modelManager } from '../store/useGraphStore';
 import { OnnxSession, type OnnxDetection } from './onnxSession';
 import { drawDetectionOverlay } from './onnxOverlay';
 import { MATH_OPS } from './mathOps';
@@ -795,6 +797,7 @@ export class ExecutionEngine {
   }
 
   private onnxSessions = new Map<string, OnnxSession>();
+  private onnxBlobUrls = new Map<string, string>();
 
   private async getOnnxSession(descriptor: OnnxModelDescriptor): Promise<OnnxSession> {
     const existing = this.onnxSessions.get(descriptor.id);
@@ -802,7 +805,22 @@ export class ExecutionEngine {
       if (existing.status !== 'ready') await existing.init();
       return existing;
     }
-    const session = new OnnxSession(descriptor);
+
+    // Try to get model buffer from the model manager (catalog download).
+    // If available, create a blob URL so the Rust wasm bridge can fetch it.
+    let effectiveDescriptor = descriptor;
+    const catalogEntry = ONNX_CATALOG[descriptor.id];
+    if (catalogEntry) {
+      const buffer = await modelManager.loadCachedModel(descriptor.id);
+      if (buffer) {
+        const blob = new Blob([buffer], { type: 'application/octet-stream' });
+        const blobUrl = URL.createObjectURL(blob);
+        this.onnxBlobUrls.set(descriptor.id, blobUrl);
+        effectiveDescriptor = { ...descriptor, modelUrl: blobUrl };
+      }
+    }
+
+    const session = new OnnxSession(effectiveDescriptor);
     this.onnxSessions.set(descriptor.id, session);
     await session.init();
     return session;
@@ -814,6 +832,10 @@ export class ExecutionEngine {
       try { s.dispose(); } catch { /* ignore */ }
     }
     this.onnxSessions.clear();
+    for (const url of this.onnxBlobUrls.values()) {
+      URL.revokeObjectURL(url);
+    }
+    this.onnxBlobUrls.clear();
     this.renderer?.clearResources();
   }
 

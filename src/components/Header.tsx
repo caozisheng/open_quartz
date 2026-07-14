@@ -5,7 +5,7 @@ import { useReactFlow } from '@xyflow/react';
 import { VERSION } from '../version';
 import type { DataType, InputMode, ShaderNodeData } from '../types';
 import { CUSTOM_SHADER_CODE, CUSTOM_2IN1_SHADER, shaderGroups } from '../engine/shaders';
-import { ONNX_MODELS } from '../engine/onnxRegistry';
+import { ONNX_CATALOG, CATALOG_CATEGORIES } from '../engine/onnxCatalog';
 import { MATH_CATEGORIES, MATH_OPS } from '../engine/mathOps';
 
 const isMac = navigator.platform.startsWith('Mac');
@@ -485,20 +485,36 @@ export function Header() {
         {onnxOpen && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOnnxOpen(false)} />
-            <div className="absolute top-full left-0 mt-0.5 bg-white border border-[#d2d2d7] rounded-lg shadow-lg z-20 py-1 min-w-[180px]">
-              {Object.values(ONNX_MODELS).map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    useGraphStore.getState().addOnnxNode(m.id, { inputs: m.inputs, outputs: m.outputs });
-                    setOnnxOpen(false);
-                  }}
-                  className="block w-full text-left px-3 py-1 text-[9px] font-bold text-[#1d1d1f] hover:text-[#007aff] hover:bg-[#f5f5f7] transition-colors cursor-default"
-                  title={m.description}
-                >
-                  {m.label.toUpperCase()}
-                </button>
+            <div className="absolute top-full left-0 mt-0.5 bg-white border border-[#d2d2d7] rounded-lg shadow-lg z-20 py-1 min-w-[220px] max-h-[400px] overflow-y-auto">
+              {CATALOG_CATEGORIES.map((cat) => (
+                <div key={cat}>
+                  <div className="px-3 pt-2 pb-0.5 text-[8px] font-semibold text-[#86868b] uppercase tracking-wider">{cat}</div>
+                  {Object.values(ONNX_CATALOG)
+                    .filter((e) => e.category === cat)
+                    .map((entry) => (
+                      <button
+                        key={entry.id}
+                        onClick={() => {
+                          useGraphStore.getState().addOnnxNode(entry.id);
+                          setOnnxOpen(false);
+                        }}
+                        className="block w-full text-left px-3 py-1 text-[9px] font-bold text-[#1d1d1f] hover:text-[#007aff] hover:bg-[#f5f5f7] transition-colors cursor-default"
+                      >
+                        {entry.label.toUpperCase()}
+                      </button>
+                    ))}
+                </div>
               ))}
+              <div className="border-t border-[#d2d2d7] my-1" />
+              <button
+                onClick={() => {
+                  useGraphStore.getState().addCustomOnnxNode();
+                  setOnnxOpen(false);
+                }}
+                className="block w-full text-left px-3 py-1 text-[9px] font-bold text-[#1d1d1f] hover:text-[#007aff] hover:bg-[#f5f5f7] transition-colors cursor-default"
+              >
+                CUSTOM ONNX MODEL...
+              </button>
             </div>
           </>
         )}

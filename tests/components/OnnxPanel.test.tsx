@@ -44,19 +44,16 @@ describe('OnnxPanel', () => {
     storeState.outputData = {};
   });
 
-  it('renders a red banner for an unknown modelId', () => {
+  it('renders unknown model id as label when not in catalog', () => {
     render(<OnnxPanel nodeId="onnx_1" modelId="not-real" />);
-    const banner = screen.getByText(/Unknown ONNX model/);
-    expect(banner).toBeInTheDocument();
-    expect(banner.textContent).toContain('not-real');
-    expect(banner).toHaveClass('text-[#ff3b30]');
+    expect(screen.getByText('not-real')).toBeInTheDocument();
   });
 
-  it("shows the descriptor label, modelUrl, and input size for a known model", () => {
+  it("shows the catalog label and download URL for a known model", () => {
     render(<OnnxPanel nodeId="onnx_1" modelId="yolov8n" />);
     expect(screen.getByText('YOLOv8n Detector')).toBeInTheDocument();
-    expect(screen.getByText('/models/yolov8n.onnx')).toBeInTheDocument();
-    expect(screen.getByText(/640×640/)).toBeInTheDocument();
+    expect(screen.getByText(/rimeflow-yolov8n.*yolov8n\.onnx/)).toBeInTheDocument();
+    expect(screen.getByText(/Detection/)).toBeInTheDocument();
   });
 
   it('displays the descriptor default thresholds when no score/iou props supplied', () => {

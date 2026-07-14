@@ -310,14 +310,16 @@ export function SidePanel() {
   }
 
   // --- ONNX CONFIG ---
-  if (data.type === 'onnx' && data.onnxModelId) {
+  if (data.type === 'onnx') {
     sections.push({
       id: 'onnx',
       title: 'ONNX CONFIG',
       content: (
         <OnnxPanel
           nodeId={selectedNodeId!}
-          modelId={data.onnxModelId}
+          modelId={data.onnxModelId ?? data.onnxCatalogId}
+          source={data.onnxSource}
+          status={data.onnxStatus}
           score={data.onnxScoreThreshold}
           iou={data.onnxIouThreshold}
         />

@@ -4,9 +4,9 @@
   "version": "0.8.0b",
   "type": "module",
   "scripts": {
-    "predev": "npm run copy:ort && npm run copy:model",
+    "predev": "npm run copy:ort",
     "dev": "vite",
-    "prebuild": "npm run copy:ort && npm run copy:model",
+    "prebuild": "npm run copy:ort",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
@@ -15,8 +15,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "build:wasm": "wasm-pack build rust/crates/yolo-detector --target web --release --out-dir pkg",
-    "copy:ort": "node scripts/copy-ort.mjs",
-    "copy:model": "node scripts/copy-model.mjs"
+    "copy:ort": "node scripts/copy-ort.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

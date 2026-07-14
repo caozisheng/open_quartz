@@ -1,0 +1,85 @@
+import type { Port } from '../types';
+
+// ---------------------------------------------------------------------------
+// Task taxonomy
+// ---------------------------------------------------------------------------
+
+export type OnnxTask =
+  | 'super-resolution'
+  | 'background-removal'
+  | 'detection'
+  | 'segmentation'
+  | 'style-transfer'
+  | 'denoising'
+  | 'depth-estimation'
+  | 'generic';
+
+// ---------------------------------------------------------------------------
+// Parameter descriptors (drive auto-generated UI knobs for a catalog entry)
+// ---------------------------------------------------------------------------
+
+export interface ParamDescriptor {
+  type: 'float' | 'int' | 'boolean';
+  default: number | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  label: string;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog entry — everything we know about a model before downloading it
+// ---------------------------------------------------------------------------
+
+export interface CatalogEntry {
+  id: string;
+  label: string;
+  task: OnnxTask;
+  category: string;          // menu grouping: 'Detection', 'Super-Resolution', etc.
+  downloadUrl: string;       // model download URL (network)
+  fileSize: number;          // bytes, for progress display
+  sha256: string;            // integrity check after download
+  expectedIO: {
+    inputs: Port[];
+    outputs: Port[];
+  };
+  defaultParams?: Record<string, ParamDescriptor>;
+}
+
+// ---------------------------------------------------------------------------
+// Built-in catalog
+// ---------------------------------------------------------------------------
+
+export const ONNX_CATALOG: Record<string, CatalogEntry> = {
+  yolov8n: {
+    id: 'yolov8n',
+    label: 'YOLOv8n Detector',
+    task: 'detection',
+    category: 'Detection',
+    downloadUrl: 'https://raw.githubusercontent.com/caozisheng/rimeflow-yolov8n/main/models/yolov8n.onnx',
+    fileSize: 12_851_098,
+    sha256: '', // TODO: fill in actual sha256 hash after verifying the release artifact
+    expectedIO: {
+      inputs: [
+        { id: 'onnx_in_image', label: 'image', dataType: 'sampler2D', direction: 'input' },
+      ],
+      outputs: [
+        { id: 'onnx_out_detections', label: 'detections', dataType: 'roi', direction: 'output' },
+        { id: 'onnx_out_overlay', label: 'overlay', dataType: 'sampler2D', direction: 'output' },
+      ],
+    },
+    defaultParams: {
+      scoreThreshold: { type: 'float', default: 0.25, min: 0, max: 1, step: 0.05, label: 'Score Threshold' },
+      iouThreshold: { type: 'float', default: 0.45, min: 0, max: 1, step: 0.05, label: 'IoU Threshold' },
+    },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Derived helpers
+// ---------------------------------------------------------------------------
+
+/** Sorted unique category list derived from the catalog. */
+export const CATALOG_CATEGORIES: string[] = [
+  ...new Set(Object.values(ONNX_CATALOG).map((e) => e.category)),
+].sort();

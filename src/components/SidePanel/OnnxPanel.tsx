@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useGraphStore } from '../../store/useGraphStore';
 import { ONNX_MODELS } from '../../engine/onnxRegistry';
+import { ONNX_CATALOG } from '../../engine/onnxCatalog';
+import type { CatalogEntry } from '../../engine/onnxCatalog';
 import type { OnnxDetection } from '../../engine/onnxSession';
+import type { OnnxModelDescriptor } from '../../engine/onnxRegistry';
 
 interface OnnxDetectionsPayload {
   detections: OnnxDetection[];
@@ -10,35 +13,59 @@ interface OnnxDetectionsPayload {
 function isDetectionsPayload(v: unknown): v is OnnxDetectionsPayload {
   if (!v || typeof v !== 'object') return false;
   if (!('detections' in v)) return false;
-  const dets = (v as { detections: unknown }).detections;
-  return Array.isArray(dets);
+  return Array.isArray(v.detections);
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  'not-downloaded': '#86868b',
+  'downloading': '#007aff',
+  'downloaded': '#34c759',
+  'introspecting': '#ff9f0a',
+  'ready': '#34c759',
+  'error': '#ff3b30',
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 interface OnnxPanelProps {
   nodeId: string;
-  modelId: string;
+  modelId?: string;
+  source?: 'catalog' | 'custom';
+  status?: string;
   score?: number;
   iou?: number;
 }
 
-export function OnnxPanel({ nodeId, modelId, score, iou }: OnnxPanelProps) {
+export function OnnxPanel({ nodeId, modelId, source, status, score, iou }: OnnxPanelProps) {
   const updateNodeData = useGraphStore((s) => s.updateNodeData);
   const outputData = useGraphStore((s) => s.outputData[nodeId]);
-  const descriptor = ONNX_MODELS[modelId];
-  const [scoreDraft, setScoreDraft] = useState<string>(String(score ?? descriptor?.scoreThreshold ?? 0.25));
-  const [iouDraft, setIouDraft] = useState<string>(String(iou ?? descriptor?.iouThreshold ?? 0.45));
+  const nodeData = useGraphStore((s) => {
+    const node = s.nodes?.find((n) => n.id === nodeId);
+    return node?.data;
+  });
+
+  // Resolve descriptor: catalog first, then legacy registry
+  const catalogEntry: CatalogEntry | undefined = modelId ? ONNX_CATALOG[modelId] : undefined;
+  const legacyDescriptor: OnnxModelDescriptor | undefined = modelId ? ONNX_MODELS[modelId] : undefined;
+
+  // Derive default thresholds from catalog params or legacy descriptor
+  const defaultScore = catalogEntry?.defaultParams?.scoreThreshold
+    ? Number(catalogEntry.defaultParams.scoreThreshold.default)
+    : legacyDescriptor?.scoreThreshold ?? 0.25;
+  const defaultIou = catalogEntry?.defaultParams?.iouThreshold
+    ? Number(catalogEntry.defaultParams.iouThreshold.default)
+    : legacyDescriptor?.iouThreshold ?? 0.45;
+
+  const [scoreDraft, setScoreDraft] = useState<string>(String(score ?? defaultScore));
+  const [iouDraft, setIouDraft] = useState<string>(String(iou ?? defaultIou));
 
   const detections = useMemo<OnnxDetection[]>(() => {
     return isDetectionsPayload(outputData) ? outputData.detections : [];
   }, [outputData]);
-
-  if (!descriptor) {
-    return (
-      <div className="px-4 py-3 border-t border-[#e8e8ed] text-[11px] text-[#ff3b30]">
-        Unknown ONNX model: {modelId}
-      </div>
-    );
-  }
 
   const commitScore = (raw: string) => {
     const n = parseFloat(raw);
@@ -51,46 +78,106 @@ export function OnnxPanel({ nodeId, modelId, score, iou }: OnnxPanelProps) {
     updateNodeData(nodeId, { onnxIouThreshold: Math.max(0, Math.min(1, n)) });
   };
 
+  const effectiveSource = source ?? (catalogEntry ? 'catalog' : legacyDescriptor ? 'catalog' : 'custom');
+  const label = catalogEntry?.label ?? legacyDescriptor?.label ?? modelId ?? 'Unknown Model';
+
   return (
     <div className="flex flex-col min-h-0 border-t border-[#e8e8ed]">
+      {/* Header + Status */}
       <div className="px-4 py-3 flex-shrink-0">
         <div className="text-[10px] text-[#86868b] font-medium mb-2">ONNX CONFIG</div>
-        <div className="text-[11px] text-[#1d1d1f] mb-1">{descriptor.label}</div>
-        <div className="text-[10px] text-[#86868b] mb-3">
-          <div>Model: <span className="font-mono">{descriptor.modelUrl}</span></div>
-          <div>Input size: {descriptor.targetSize}×{descriptor.targetSize}</div>
-        </div>
+        <div className="text-[11px] text-[#1d1d1f] mb-1">{label}</div>
 
-        <div className="flex items-center gap-3 mb-2">
-          <div className="flex-1">
-            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Score ≥</label>
-            <input
-              type="number"
-              step={0.05}
-              min={0}
-              max={1}
-              value={scoreDraft}
-              onChange={(e) => setScoreDraft(e.target.value)}
-              onBlur={(e) => commitScore(e.target.value)}
-              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-            />
+        {/* Status badge */}
+        {status && (
+          <div className="mb-2">
+            <span
+              className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded"
+              style={{
+                color: STATUS_COLORS[status] ?? '#86868b',
+                backgroundColor: `${STATUS_COLORS[status] ?? '#86868b'}18`,
+              }}
+            >
+              {status}
+            </span>
           </div>
-          <div className="flex-1">
-            <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">IoU ≤</label>
-            <input
-              type="number"
-              step={0.05}
-              min={0}
-              max={1}
-              value={iouDraft}
-              onChange={(e) => setIouDraft(e.target.value)}
-              onBlur={(e) => commitIou(e.target.value)}
-              className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
-            />
+        )}
+
+        {/* Catalog model info */}
+        {effectiveSource === 'catalog' && catalogEntry && (
+          <div className="text-[10px] text-[#86868b] mb-3">
+            <div>Category: <span className="text-[#1d1d1f]">{catalogEntry.category}</span></div>
+            <div>Task: <span className="text-[#1d1d1f]">{catalogEntry.task}</span></div>
+            <div>Size: <span className="text-[#1d1d1f]">{formatBytes(catalogEntry.fileSize)}</span></div>
+            <div>
+              URL: <span className="font-mono text-[9px] break-all">{catalogEntry.downloadUrl}</span>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Legacy descriptor fallback info */}
+        {effectiveSource === 'catalog' && !catalogEntry && legacyDescriptor && (
+          <div className="text-[10px] text-[#86868b] mb-3">
+            <div>Model: <span className="font-mono">{legacyDescriptor.modelUrl}</span></div>
+            <div>Input size: {legacyDescriptor.targetSize}×{legacyDescriptor.targetSize}</div>
+          </div>
+        )}
+
+        {/* Custom model info */}
+        {effectiveSource === 'custom' && (
+          <div className="text-[10px] text-[#86868b] mb-3">
+            {nodeData?.onnxCustomFileName && (
+              <div>File: <span className="text-[#1d1d1f] font-mono">{nodeData.onnxCustomFileName}</span></div>
+            )}
+            {nodeData?.onnxCustomPath && (
+              <div>Path: <span className="font-mono text-[9px] break-all">{nodeData.onnxCustomPath}</span></div>
+            )}
+            {!nodeData?.onnxCustomFileName && !nodeData?.onnxCustomPath && (
+              <div className="text-[#aeaeb2] italic">No model file selected</div>
+            )}
+            <button
+              disabled
+              className="mt-2 w-full text-[11px] text-[#86868b] bg-[#f5f5f7] rounded px-3 py-1.5 border border-[#d2d2d7] cursor-not-allowed opacity-60"
+            >
+              Select Model File…
+            </button>
+          </div>
+        )}
+
+        {/* Catalog params (score/iou thresholds) */}
+        {(catalogEntry?.defaultParams || legacyDescriptor) && (
+          <div className="flex items-center gap-3 mb-2">
+            <div className="flex-1">
+              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">Score ≥</label>
+              <input
+                type="number"
+                step={0.05}
+                min={0}
+                max={1}
+                value={scoreDraft}
+                onChange={(e) => setScoreDraft(e.target.value)}
+                onBlur={(e) => commitScore(e.target.value)}
+                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-[10px] text-[#86868b] font-medium mb-0.5">IoU ≤</label>
+              <input
+                type="number"
+                step={0.05}
+                min={0}
+                max={1}
+                value={iouDraft}
+                onChange={(e) => setIouDraft(e.target.value)}
+                onBlur={(e) => commitIou(e.target.value)}
+                className="w-full text-[12px] text-[#1d1d1f] bg-[#f5f5f7] rounded px-2 py-1 border border-[#d2d2d7] outline-none focus:border-[#007aff]"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Detections list (backward compat) */}
       <div className="px-4 pb-3 flex-shrink-0">
         <div className="text-[10px] text-[#86868b] font-medium mb-1">
           DETECTIONS ({detections.length})

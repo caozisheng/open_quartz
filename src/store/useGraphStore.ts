@@ -9,6 +9,12 @@ import {
 import type { ShaderNodeData, DataType, InputMode, Port } from '../types';
 import { parseShader } from '../engine/shaderParser';
 import { MATH_OPS, getMathPorts } from '../engine/mathOps';
+import { ONNX_CATALOG } from '../engine/onnxCatalog';
+import type { CatalogEntry } from '../engine/onnxCatalog';
+import { OnnxModelManager } from '../engine/onnxModelManager';
+
+// Singleton model manager — shared across the app lifetime.
+export const modelManager = new OnnxModelManager();
 
 interface HistoryEntry {
   nodes: Node<ShaderNodeData>[];
@@ -43,7 +49,8 @@ interface GraphState {
   addInputNode: (dataType: DataType, position?: { x: number; y: number }, inputMode?: InputMode) => void;
   addSystemNode: (source: NonNullable<ShaderNodeData['systemSource']>, position?: { x: number; y: number }) => void;
   addShaderNode: (code: string, label: string, position?: { x: number; y: number }) => void;
-  addOnnxNode: (modelId: string, ports: { inputs: Port[]; outputs: Port[] }, position?: { x: number; y: number }) => void;
+  addOnnxNode: (catalogId: string, position?: { x: number; y: number }) => void;
+  addCustomOnnxNode: (position?: { x: number; y: number }) => void;
   addMathNode: (mathOp: string, position?: { x: number; y: number }) => void;
   removeNode: (id: string) => void;
   removeSelectedElements: () => void;
@@ -159,6 +166,70 @@ function makeNode(type: ShaderNodeData['type'], position?: { x: number; y: numbe
       inputMode: type === 'input' ? (inputMode ?? (inputDataType === 'sampler2D' ? 'image' : undefined)) : undefined,
     },
   };
+}
+
+/**
+ * Async helper: download a catalog model, updating node status/progress in the store.
+ * Called fire-and-forget from addOnnxNode.
+ */
+async function downloadCatalogModel(
+  nodeId: string,
+  entry: CatalogEntry,
+  get: () => GraphState,
+  set: (fn: (state: GraphState) => void) => void,
+): Promise<void> {
+  // Check if already cached.
+  const cached = await modelManager.loadCachedModel(entry.id);
+  if (cached) {
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (node) {
+        node.data.onnxStatus = 'ready';
+        node.data.onnxProgress = 1;
+      }
+    });
+    return;
+  }
+
+  // Start downloading — subscribe to progress.
+  set((state) => {
+    const node = state.nodes.find((n) => n.id === nodeId);
+    if (node) node.data.onnxStatus = 'downloading';
+  });
+
+  const unsub = modelManager.subscribe(() => {
+    const ms = modelManager.getState(entry.id);
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      node.data.onnxProgress = ms.progress;
+      if (ms.status === 'error') {
+        node.data.onnxStatus = 'error';
+        node.data.onnxError = ms.error;
+      }
+    });
+  });
+
+  try {
+    await modelManager.downloadModel(entry);
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (node) {
+        node.data.onnxStatus = 'ready';
+        node.data.onnxProgress = 1;
+      }
+    });
+  } catch (err) {
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (node) {
+        node.data.onnxStatus = 'error';
+        node.data.onnxError = err instanceof Error ? err.message : String(err);
+      }
+    });
+  } finally {
+    unsub();
+  }
 }
 
 export const useGraphStore = create<GraphState>()(
@@ -295,7 +366,53 @@ export const useGraphStore = create<GraphState>()(
         node.data.systemSource = source;
         set((state) => { state.nodes.push(node); });
       },
-      addOnnxNode: (modelId, ports, position) => {
+      addOnnxNode: (catalogId, position) => {
+        const entry = ONNX_CATALOG[catalogId];
+        if (!entry) return;
+        saveSnapshot();
+        nodeCounter++;
+        const id = `onnx_${nodeCounter}`;
+        const cascade = nodeCascade++ * 28;
+        const pos = position ?? { x: 100 + cascade, y: 100 + cascade };
+        const onnxParams: Record<string, number | boolean> = {};
+        let onnxScoreThreshold: number | undefined;
+        let onnxIouThreshold: number | undefined;
+        if (entry.defaultParams) {
+          for (const [key, desc] of Object.entries(entry.defaultParams)) {
+            onnxParams[key] = desc.default;
+          }
+          if ('scoreThreshold' in entry.defaultParams) {
+            onnxScoreThreshold = entry.defaultParams.scoreThreshold.default as number;
+          }
+          if ('iouThreshold' in entry.defaultParams) {
+            onnxIouThreshold = entry.defaultParams.iouThreshold.default as number;
+          }
+        }
+        const node: Node<ShaderNodeData> = {
+          id,
+          type: 'onnx',
+          position: pos,
+          data: {
+            type: 'onnx',
+            label: entry.label,
+            shaderCode: '',
+            inputs: entry.expectedIO.inputs.map((p) => ({ ...p, id: `${id}_${p.label}` })),
+            outputs: entry.expectedIO.outputs.map((p) => ({ ...p, id: `${id}_${p.label}` })),
+            uniforms: {},
+            onnxModelId: catalogId,
+            onnxSource: 'catalog',
+            onnxCatalogId: catalogId,
+            onnxStatus: 'not-downloaded',
+            onnxParams: Object.keys(onnxParams).length > 0 ? onnxParams : undefined,
+            onnxScoreThreshold,
+            onnxIouThreshold,
+          },
+        };
+        set((state) => { state.nodes.push(node); });
+        // Fire-and-forget: download model, update node status/progress.
+        void downloadCatalogModel(id, entry, get, set);
+      },
+      addCustomOnnxNode: (position) => {
         saveSnapshot();
         nodeCounter++;
         const id = `onnx_${nodeCounter}`;
@@ -307,12 +424,13 @@ export const useGraphStore = create<GraphState>()(
           position: pos,
           data: {
             type: 'onnx',
-            label: modelId,
+            label: 'Custom ONNX',
             shaderCode: '',
-            inputs: ports.inputs.map((p) => ({ ...p, id: `${id}_${p.label}` })),
-            outputs: ports.outputs.map((p) => ({ ...p, id: `${id}_${p.label}` })),
+            inputs: [],
+            outputs: [],
             uniforms: {},
-            onnxModelId: modelId,
+            onnxSource: 'custom',
+            onnxStatus: 'not-downloaded',
           },
         };
         set((state) => { state.nodes.push(node); });

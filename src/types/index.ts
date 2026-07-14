@@ -63,6 +63,15 @@ export interface ShaderNodeData {
   onnxScoreThreshold?: number;
   onnxIouThreshold?: number;
   onnxTargetSize?: number;
+  // Catalog / Custom ONNX fields (Phase 1)
+  onnxSource?: 'catalog' | 'custom';        // how model was added
+  onnxCatalogId?: string;                    // catalog entry id (for catalog nodes)
+  onnxCustomPath?: string;                   // local file path (for custom nodes)
+  onnxCustomFileName?: string;               // display name for custom model
+  onnxStatus?: 'not-downloaded' | 'downloading' | 'downloaded' | 'introspecting' | 'ready' | 'error';
+  onnxProgress?: number;                     // 0-1 download progress
+  onnxError?: string;                        // error message
+  onnxParams?: Record<string, number | boolean>;  // task-specific params
   expanded?: boolean;
   videoSourceType?: 'camera' | 'file';
   videoUrl?: string;
