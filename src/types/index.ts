@@ -71,6 +71,7 @@ export interface ShaderNodeData {
   onnxStatus?: 'not-downloaded' | 'downloading' | 'downloaded' | 'introspecting' | 'ready' | 'error';
   onnxProgress?: number;                     // 0-1 download progress
   onnxError?: string;                        // error message
+  onnxBackend?: 'webgpu' | 'wasm';           // inference backend (set after first run)
   onnxParams?: Record<string, number | boolean>;  // task-specific params
   expanded?: boolean;
   videoSourceType?: 'camera' | 'file';

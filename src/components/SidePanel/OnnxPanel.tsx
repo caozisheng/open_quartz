@@ -36,11 +36,12 @@ interface OnnxPanelProps {
   modelId?: string;
   source?: 'catalog' | 'custom';
   status?: string;
+  backend?: 'webgpu' | 'wasm';
   score?: number;
   iou?: number;
 }
 
-export function OnnxPanel({ nodeId, modelId, source, status, score, iou }: OnnxPanelProps) {
+export function OnnxPanel({ nodeId, modelId, source, status, backend, score, iou }: OnnxPanelProps) {
   const updateNodeData = useGraphStore((s) => s.updateNodeData);
   const outputData = useGraphStore((s) => s.outputData[nodeId]);
   const nodeData = useGraphStore((s) => {
@@ -100,6 +101,15 @@ export function OnnxPanel({ nodeId, modelId, source, status, score, iou }: OnnxP
             >
               {status}
             </span>
+            {backend === 'wasm' && (
+              <span
+                className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded ml-1"
+                style={{ color: '#ff9f0a', backgroundColor: '#ff9f0a18' }}
+                title="WebGPU not supported for this model on your GPU — running on CPU via WASM"
+              >
+                CPU fallback
+              </span>
+            )}
           </div>
         )}
 

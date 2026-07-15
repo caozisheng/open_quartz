@@ -320,6 +320,7 @@ export function SidePanel() {
           modelId={data.onnxModelId ?? data.onnxCatalogId}
           source={data.onnxSource}
           status={data.onnxStatus}
+          backend={data.onnxBackend}
           score={data.onnxScoreThreshold}
           iou={data.onnxIouThreshold}
         />
