@@ -7,7 +7,7 @@ import { compileNodeShader, validateFragmentShader } from './shaderCompiler';
 import { topologicalSort } from './graphExecutor';
 import { ONNX_MODELS, DEFAULT_ONNX_MODEL_ID, type OnnxModelDescriptor } from './onnxRegistry';
 import { ONNX_CATALOG } from './onnxCatalog';
-import { modelManager } from '../store/useGraphStore';
+import { modelManager, useGraphStore } from '../store/useGraphStore';
 import { OnnxSession, type OnnxDetection } from './onnxSession';
 import { OnnxInferenceSession, runSuperResolution } from './onnxInference';
 import { drawDetectionOverlay } from './onnxOverlay';
@@ -43,11 +43,14 @@ export class ExecutionEngine {
   private renderer: WebGLRenderer | null = null;
   private running = false;
   private onnxInFlight = new Set<string>();
+  /** Cached ONNX outputs that survive plan rebuilds (recompile). */
+  private onnxOutputCache = new Map<string, TextureSource>();
   private onnxCallbacks: {
     onOutput?: (nodeId: string, dataUrl: string) => void;
     onNodeError?: (nodeId: string, error: string) => void;
     onOutputSize?: (nodeId: string, w: number, h: number) => void;
     onOutputData?: (nodeId: string, data: unknown) => void;
+    onOnnxComplete?: () => void;
   } = {};
 
   constructor(canvas: HTMLCanvasElement) {
@@ -73,9 +76,10 @@ export class ExecutionEngine {
     onOutputSize?: (nodeId: string, width: number, height: number) => void,
     onOutputData?: (nodeId: string, data: unknown) => void,
     onOutput?: (nodeId: string, dataUrl: string) => void,
+    onOnnxComplete?: () => void,
   ): ExecutionPlan | null {
     if (!this.renderer) return null;
-    this.onnxCallbacks = { onOutput, onNodeError, onOutputSize, onOutputData };
+    this.onnxCallbacks = { onOutput, onNodeError, onOutputSize, onOutputData, onOnnxComplete };
     const materials = new Map<string, THREE.ShaderMaterial>();
     const upstreamSamplerBindings = new Map<string, Map<string, string>>();
     const scalarUpstream = new Map<string, Map<string, string>>();
@@ -265,6 +269,12 @@ export class ExecutionEngine {
   runFrame(plan: ExecutionPlan, builtins: FrameInputs): void {
     if (!this.renderer) return;
 
+    // Restore cached ONNX outputs into a (possibly fresh) plan.
+    for (const [id, src] of this.onnxOutputCache) {
+      if (!plan.textureSources.has(id)) {
+        plan.textureSources.set(id, src);
+      }
+    }
     if (builtins.videoTextures) {
       for (const [nodeId, texture] of builtins.videoTextures) {
         plan.textureSources.set(nodeId, { kind: 'image', texture });
@@ -318,6 +328,10 @@ export class ExecutionEngine {
 
       if (node.data.type === 'onnx') {
         if (this.onnxInFlight.has(nodeId)) continue;
+        // Skip if model is still downloading / not ready.
+        if (node.data.onnxStatus && node.data.onnxStatus !== 'ready') continue;
+        // Skip if output already produced (e.g. static pipeline re-render after async completion).
+        if (plan.textureSources.has(nodeId)) continue;
         const upstreamMap = plan.upstreamSamplerBindings.get(nodeId);
         const sourceId = upstreamMap?.values().next().value;
         if (!sourceId) continue;
@@ -420,6 +434,7 @@ export class ExecutionEngine {
 
       const overlay = drawDetectionOverlay(sourceCanvas, srcW, srcH, detections);
       plan.textureSources.set(nodeId, { kind: 'image', texture: overlay.texture });
+      this.onnxOutputCache.set(nodeId, { kind: 'image', texture: overlay.texture });
 
       this.onnxCallbacks.onOutput?.(nodeId, overlay.dataUrl);
       this.onnxCallbacks.onOutputSize?.(nodeId, srcW, srcH);
@@ -430,6 +445,7 @@ export class ExecutionEngine {
       this.onnxCallbacks.onNodeError?.(nodeId, msg);
     } finally {
       this.onnxInFlight.delete(nodeId);
+      this.onnxCallbacks.onOnnxComplete?.();
     }
   }
 
@@ -468,6 +484,13 @@ export class ExecutionEngine {
     const modelType = isRgbModel ? 'rgb' as const : 'ycbcr' as const;
     const result = await runSuperResolution(session, imageData.data, srcW, srcH, scale, modelType);
 
+    // Report backend (webgpu or wasm fallback) — only if changed to avoid triggering graph updates.
+    const backend = session.isWasmFallback ? 'wasm' as const : 'webgpu' as const;
+    const currentNode = useGraphStore.getState().nodes.find((n) => n.id === nodeId);
+    if (currentNode && currentNode.data.onnxBackend !== backend) {
+      useGraphStore.getState().updateNodeData(nodeId, { onnxBackend: backend });
+    }
+
     // Create output canvas → Three.js texture
     const outCanvas = document.createElement('canvas');
     outCanvas.width = result.width;
@@ -480,6 +503,7 @@ export class ExecutionEngine {
     texture.needsUpdate = true;
     texture.flipY = true;
     plan.textureSources.set(nodeId, { kind: 'image', texture });
+    this.onnxOutputCache.set(nodeId, { kind: 'image', texture });
 
     // Preview + output size callback
     this.onnxCallbacks.onOutput?.(nodeId, outCanvas.toDataURL('image/png'));
@@ -583,6 +607,7 @@ export class ExecutionEngine {
       if (node.data.inputMode === 'video' && node.data.videoUrl) {
         const videoSize = await new Promise<{ width: number; height: number } | null>((resolve) => {
           const video = document.createElement('video');
+          video.crossOrigin = 'anonymous';
           video.preload = 'metadata';
           video.onloadedmetadata = () => resolve({ width: video.videoWidth, height: video.videoHeight });
           video.onerror = () => resolve(null);
@@ -661,6 +686,7 @@ export class ExecutionEngine {
         } else if (node.data.inputMode === 'video' && node.data.videoUrl) {
           try {
             const video = document.createElement('video');
+            video.crossOrigin = 'anonymous';
             video.muted = true;
             video.playsInline = true;
             video.preload = 'auto';
@@ -796,6 +822,11 @@ export class ExecutionEngine {
           const modelId = node.data.onnxModelId ?? DEFAULT_ONNX_MODEL_ID;
           const catalogEntry = ONNX_CATALOG[modelId];
 
+          // Skip execution if the model is still downloading or hasn't been fetched yet.
+          if (node.data.onnxStatus && node.data.onnxStatus !== 'ready') {
+            continue;
+          }
+
           const imagePort = node.data.inputs.find((p) => p.dataType === 'sampler2D');
           if (!imagePort) throw new Error(`ONNX node missing sampler2D input`);
           const upstreamEdge = upstreamEdges.find((e) => e.targetHandle === imagePort.id);
@@ -928,6 +959,7 @@ export class ExecutionEngine {
       URL.revokeObjectURL(url);
     }
     this.onnxBlobUrls.clear();
+    this.onnxOutputCache.clear();
     this.renderer?.clearResources();
   }
 

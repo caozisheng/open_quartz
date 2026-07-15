@@ -28,8 +28,9 @@ export class Compositor {
     onOutputSize?: (nodeId: string, width: number, height: number) => void,
     onOutputData?: (nodeId: string, data: unknown) => void,
     onOutput?: (nodeId: string, dataUrl: string) => void,
+    onOnnxComplete?: () => void,
   ): boolean {
-    this.plan = this.engine.prepare(nodes, edges, onNodeError, onOutputSize, onOutputData, onOutput);
+    this.plan = this.engine.prepare(nodes, edges, onNodeError, onOutputSize, onOutputData, onOutput, onOnnxComplete);
     return this.plan !== null;
   }
 
