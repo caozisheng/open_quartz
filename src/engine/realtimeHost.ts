@@ -17,6 +17,27 @@ export interface HostCallbacks {
   onStateChange?: (state: HostState) => void;
 }
 
+/** Time-varying builtins — if a shader references any of these it needs continuous frames. */
+const DYNAMIC_BUILTINS = /\b(iTime|iTimeDelta|iFrame|iMouse)\b/;
+
+/** Dynamic system sources that change every frame. Resolution is static. */
+const DYNAMIC_SYSTEM_SOURCES: Record<string, true> = { time: true, timeDelta: true, frame: true, mouse: true };
+
+/**
+ * A pipeline is static when no node depends on time-varying inputs.
+ * Static pipelines only need a single render pass.
+ */
+function isStaticPipeline(nodes: Node<ShaderNodeData>[]): boolean {
+  for (const node of nodes) {
+    if (node.data.type === 'input' && node.data.inputMode === 'video') return false;
+    if (node.data.type === 'input' && node.data.inputMode === 'system'
+        && node.data.systemSource && DYNAMIC_SYSTEM_SOURCES[node.data.systemSource]) return false;
+    if ((node.data.type === 'shader' || node.data.type === 'constant')
+        && DYNAMIC_BUILTINS.test(node.data.shaderCode)) return false;
+  }
+  return true;
+}
+
 export class RealtimeHost {
   private compositor: Compositor;
   private clock = new Clock();
@@ -30,6 +51,30 @@ export class RealtimeHost {
   private videoSources = new Map<string, VideoSource>();
   private videoTextures = new Map<string, THREE.Texture>();
   private needsRecompile = false;
+  private isStatic = false;
+  private lastInputs: FrameInputs | null = null;
+
+  /** Repaint all renderer mirrors on demand (e.g. fullscreen canvas mounted). */
+  private onRemount = (): void => {
+    if (this.state === 'playing') {
+      requestAnimationFrame(() => this.renderToScreen());
+    }
+  };
+
+  /**
+   * Re-render with the last frame's frozen inputs (no clock advance).
+   * Called when async ONNX completes in static mode — triggers the downstream
+   * renderer to pick up new textures.  Cascaded ONNX (A→B→Renderer) naturally
+   * converges: A completes → rerender fires B → B completes → rerender shows result.
+   */
+  private scheduleRerender = (): void => {
+    if (this.state !== 'playing' || !this.isStatic || !this.lastInputs) return;
+    requestAnimationFrame(() => {
+      if (this.state !== 'playing' || !this.lastInputs) return;
+      this.compositor.render(this.lastInputs);
+      this.renderToScreen();
+    });
+  };
 
   constructor(canvas: HTMLCanvasElement, callbacks: HostCallbacks) {
     this.compositor = new Compositor(canvas);
@@ -39,6 +84,7 @@ export class RealtimeHost {
   play(nodes: Node<ShaderNodeData>[], edges: Edge[]): void {
     this.nodes = nodes;
     this.edges = edges;
+    this.isStatic = isStaticPipeline(nodes);
     this.compositor.prepare(
       nodes,
       edges,
@@ -46,19 +92,29 @@ export class RealtimeHost {
       this.callbacks.onOutputSize,
       this.callbacks.onOutputData,
       this.callbacks.onOutput,
+      this.scheduleRerender,
     );
     void this.reconcileVideoSources(nodes);
+    window.addEventListener('renderer-remount', this.onRemount);
     this.clock.start();
     this.mouse.attach(document.body);
     this.state = 'playing';
     this.callbacks.onStateChange?.('playing');
 
-    const frame = (now: DOMHighResTimeStamp): void => {
-      if (this.state === 'stopped') return;
-      this.tick(now);
+    if (this.isStatic) {
+      // Static pipeline: render one frame, then stop the loop.
+      this.rafId = requestAnimationFrame((now) => {
+        this.tick(now);
+        this.rafId = null;
+      });
+    } else {
+      const frame = (now: DOMHighResTimeStamp): void => {
+        if (this.state === 'stopped') return;
+        this.tick(now);
+        this.rafId = requestAnimationFrame(frame);
+      };
       this.rafId = requestAnimationFrame(frame);
-    };
-    this.rafId = requestAnimationFrame(frame);
+    }
   }
 
   pause(): void {
@@ -73,6 +129,20 @@ export class RealtimeHost {
     for (const source of this.videoSources.values()) source.play();
     this.state = 'playing';
     this.callbacks.onStateChange?.('playing');
+
+    if (this.isStatic) {
+      this.rafId = requestAnimationFrame((now) => {
+        this.tick(now);
+        this.rafId = null;
+      });
+    } else {
+      const frame = (now: DOMHighResTimeStamp): void => {
+        if (this.state === 'stopped') return;
+        this.tick(now);
+        this.rafId = requestAnimationFrame(frame);
+      };
+      this.rafId = requestAnimationFrame(frame);
+    }
   }
 
   stop(): void {
@@ -83,6 +153,7 @@ export class RealtimeHost {
     }
     this.clock.reset();
     this.mouse.detach();
+    window.removeEventListener('renderer-remount', this.onRemount);
     for (const source of this.videoSources.values()) source.dispose();
     this.videoSources.clear();
     this.videoTextures.clear();
@@ -95,6 +166,28 @@ export class RealtimeHost {
     this.edges = edges;
     this.needsRecompile = true;
     void this.reconcileVideoSources(nodes);
+
+    const wasStatic = this.isStatic;
+    this.isStatic = isStaticPipeline(nodes);
+
+    if (this.isStatic && this.state === 'playing') {
+      // Re-render one frame with updated graph.
+      if (this.rafId !== null) {
+        cancelAnimationFrame(this.rafId);
+      }
+      this.rafId = requestAnimationFrame((now) => {
+        this.tick(now);
+        this.rafId = null;
+      });
+    } else if (!this.isStatic && wasStatic && this.state === 'playing') {
+      // Pipeline became dynamic — start the continuous loop.
+      const frame = (now: DOMHighResTimeStamp): void => {
+        if (this.state === 'stopped') return;
+        this.tick(now);
+        this.rafId = requestAnimationFrame(frame);
+      };
+      this.rafId = requestAnimationFrame(frame);
+    }
   }
 
 
@@ -168,6 +261,7 @@ export class RealtimeHost {
         this.callbacks.onOutputSize,
         this.callbacks.onOutputData,
         this.callbacks.onOutput,
+        this.scheduleRerender,
       );
     }
 
@@ -188,8 +282,13 @@ export class RealtimeHost {
       videoTextures: this.videoTextures,
     };
 
+    this.lastInputs = inputs;
     this.compositor.render(inputs);
+    this.renderToScreen();
+    this.callbacks.onFrame?.(ts);
+  }
 
+  private renderToScreen(): void {
     const glCanvas = this.compositor.getCanvas();
     const rendererNodes = this.nodes.filter((n) => n.data.type === 'renderer');
     for (const rNode of rendererNodes) {
@@ -205,7 +304,5 @@ export class RealtimeHost {
         ctx.drawImage(glCanvas, 0, 0, mirror.width, mirror.height);
       }
     }
-
-    this.callbacks.onFrame?.(ts);
   }
 }
