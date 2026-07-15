@@ -17,18 +17,17 @@ export class OnnxInferenceSession {
   private session: OrtModule.InferenceSession | null = null;
   private _inputNames: string[] = [];
   private _outputNames: string[] = [];
+  private _buffer: ArrayBuffer | null = null;
+  private _isWasm = false;
 
   get inputNames(): readonly string[] { return this._inputNames; }
   get outputNames(): readonly string[] { return this._outputNames; }
+  get isWasmFallback(): boolean { return this._isWasm; }
 
   /** Load a model from an ArrayBuffer (already downloaded by modelManager). */
   async loadFromBuffer(buffer: ArrayBuffer): Promise<void> {
-    await ensureOrtLoaded();
-    this.session = await ort.InferenceSession.create(buffer, {
-      executionProviders: ['webgpu', 'wasm'],
-    });
-    this._inputNames = [...this.session.inputNames];
-    this._outputNames = [...this.session.outputNames];
+    this._buffer = buffer;
+    await this.createSession(buffer, ['webgpu', 'wasm']);
   }
 
   /** Load a model from a URL (blob URL or network URL). */
@@ -39,6 +38,19 @@ export class OnnxInferenceSession {
     });
     this._inputNames = [...this.session.inputNames];
     this._outputNames = [...this.session.outputNames];
+  }
+
+  /**
+   * Recreate the session with WASM-only backend.
+   * Called automatically when WebGPU kernels fail at every tile size.
+   */
+  async fallbackToWasm(): Promise<void> {
+    if (this._isWasm) return;
+    if (!this._buffer) throw new Error('Cannot fallback: no buffer retained');
+    this.session?.release();
+    await this.createSession(this._buffer, ['wasm']);
+    this._isWasm = true;
+    console.warn('[onnx] Fell back to WASM backend');
   }
 
   /** Run inference with a single float32 input tensor. */
@@ -71,8 +83,18 @@ export class OnnxInferenceSession {
   dispose(): void {
     this.session?.release();
     this.session = null;
+    this._buffer = null;
     this._inputNames = [];
     this._outputNames = [];
+  }
+
+  private async createSession(buffer: ArrayBuffer, providers: string[]): Promise<void> {
+    await ensureOrtLoaded();
+    this.session = await ort.InferenceSession.create(buffer, {
+      executionProviders: providers,
+    });
+    this._inputNames = [...this.session.inputNames];
+    this._outputNames = [...this.session.outputNames];
   }
 }
 
@@ -104,108 +126,256 @@ function ensureOrtLoaded(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Super-Resolution pre/post processing
+// Generic tiled inference
 // ---------------------------------------------------------------------------
 
+/** Per-model encode/decode logic for the tiled runner. */
+interface TileCodec {
+  /** Number of input channels (NCHW C dimension). */
+  channels: number;
+  /**
+   * If set, model requires fixed spatial input (e.g. 224).
+   * Tile step = fixedSize − 2 × pad so interior patches match exactly;
+   * edge patches are zero-padded by encode.
+   */
+  fixedSize?: number;
+  /** Called once before tiling begins. Return value is passed to encode/decode. */
+  prepare?(rgba: Uint8ClampedArray, width: number, height: number): unknown;
+  /** Extract a patch from source pixels → flat CHW float32. */
+  encode(
+    rgba: Uint8ClampedArray, width: number,
+    patchX: number, patchY: number, patchW: number, patchH: number,
+    prepared: unknown,
+  ): Float32Array;
+  /** Write one cropped output tile into outRgba. */
+  decode(
+    patchOut: Float32Array, outPatchW: number, outPatchPixels: number,
+    cropX: number, cropY: number, cropW: number, cropH: number,
+    outRgba: Uint8ClampedArray, outW: number,
+    dstBaseX: number, dstBaseY: number,
+    tileX: number, tileY: number, scale: number,
+    prepared: unknown,
+  ): void;
+}
+
+const INITIAL_TILE = 64;
+const MIN_TILE     = 16;
+const TILE_PAD     = 8;
+
+/** Module-level cache: once we find a tile size that works, reuse it. */
+let provenTileSize = INITIAL_TILE;
+
 /**
- * Pre-process an RGBA pixel buffer for the Sub-pixel CNN SR model.
+ * Run inference on an RGBA image by splitting it into overlapping tiles.
  *
- * 1. Convert RGB → YCbCr
- * 2. Extract Y channel
- * 3. Normalize to [0, 1]
- * 4. Return { yTensor, cbData, crData } for post-processing
+ * For dynamic-input models the tile size is adaptive: starts at
+ * {@link provenTileSize} (initially 64), and if WebGPU fails with a buffer
+ * allocation error the size is halved and the image is retried from scratch.
+ * The surviving size is cached so subsequent frames don't pay the retry cost.
+ *
+ * For fixed-input models ({@link TileCodec.fixedSize}), tile step is derived
+ * from the model's required spatial size.
  */
-export function srPreprocess(
+async function runTiledInference(
+  session: OnnxInferenceSession,
   rgba: Uint8ClampedArray,
   width: number,
   height: number,
-): { yTensor: Float32Array; yShape: number[]; cbData: Float32Array; crData: Float32Array } {
-  const pixelCount = width * height;
-  const yData = new Float32Array(pixelCount);
-  const cbData = new Float32Array(pixelCount);
-  const crData = new Float32Array(pixelCount);
-
-  for (let i = 0; i < pixelCount; i++) {
-    const r = rgba[i * 4] / 255;
-    const g = rgba[i * 4 + 1] / 255;
-    const b = rgba[i * 4 + 2] / 255;
-
-    // RGB → YCbCr (ITU-R BT.601)
-    yData[i] = 0.299 * r + 0.587 * g + 0.114 * b;
-    cbData[i] = -0.169 * r - 0.331 * g + 0.500 * b + 0.5;
-    crData[i] = 0.500 * r - 0.419 * g - 0.081 * b + 0.5;
+  scale: number,
+  codec: TileCodec,
+): Promise<{ rgba: Uint8ClampedArray; width: number; height: number }> {
+  if (codec.fixedSize) {
+    return runTilesAtSize(session, rgba, width, height, scale, codec, codec.fixedSize - 2 * TILE_PAD);
   }
 
-  return {
-    yTensor: yData,
-    yShape: [1, 1, height, width],  // NCHW
-    cbData,
-    crData,
-  };
+  // Dynamic model: adaptive tile sizing → WASM fallback.
+  let tile = provenTileSize;
+  for (;;) {
+    try {
+      const result = await runTilesAtSize(session, rgba, width, height, scale, codec, tile);
+      provenTileSize = tile;
+      return result;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!isGpuAllocError(msg)) throw e;
+      if (tile <= MIN_TILE) {
+        // Tile can't shrink further — WebGPU kernel itself is broken.
+        // Rebuild session with WASM backend and retry at default tile.
+        if (session.isWasmFallback) throw e;
+        console.warn('[tiled-inference] WebGPU incompatible, falling back to WASM');
+        await session.fallbackToWasm();
+        tile = INITIAL_TILE;
+        continue;
+      }
+      tile = Math.max(MIN_TILE, tile >> 1);
+      console.warn(`[tiled-inference] WebGPU allocation failed, retrying with tile=${tile}`);
+    }
+  }
 }
 
-/**
- * Post-process SR model output back to RGBA.
- *
- * 1. Take upscaled Y channel from model output
- * 2. Bicubic-upscale Cb/Cr to match (done as nearest for simplicity in MVP)
- * 3. YCbCr → RGB
- * 4. Return RGBA Uint8ClampedArray
- */
-export function srPostprocess(
-  yUpscaled: Float32Array,
-  outWidth: number,
-  outHeight: number,
-  cbData: Float32Array,
-  crData: Float32Array,
-  inWidth: number,
-  inHeight: number,
-): Uint8ClampedArray {
-  const outPixels = outWidth * outHeight;
-  const rgba = new Uint8ClampedArray(outPixels * 4);
+function isGpuAllocError(msg: string): boolean {
+  return msg.includes('Failed to generate')
+    || msg.includes('Failed to run')
+    || msg.includes('JSEP')
+    || msg.includes('buffer size')
+    || msg.includes('allocation');
+}
 
-  for (let oy = 0; oy < outHeight; oy++) {
-    for (let ox = 0; ox < outWidth; ox++) {
-      const outIdx = oy * outWidth + ox;
+async function runTilesAtSize(
+  session: OnnxInferenceSession,
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  scale: number,
+  codec: TileCodec,
+  tileStep: number,
+): Promise<{ rgba: Uint8ClampedArray; width: number; height: number }> {
+  const outW = width * scale;
+  const outH = height * scale;
+  const outRgba = new Uint8ClampedArray(outW * outH * 4);
 
-      // Y from upscaled output
-      const y = yUpscaled[outIdx];
+  const prepared = codec.prepare?.(rgba, width, height);
 
-      // Cb/Cr from nearest-neighbor upscale of original
-      const srcX = Math.min(Math.floor(ox * inWidth / outWidth), inWidth - 1);
-      const srcY = Math.min(Math.floor(oy * inHeight / outHeight), inHeight - 1);
-      const srcIdx = srcY * inWidth + srcX;
-      const cb = cbData[srcIdx] - 0.5;
-      const cr = crData[srcIdx] - 0.5;
+  for (let ty = 0; ty < height; ty += tileStep) {
+    for (let tx = 0; tx < width; tx += tileStep) {
+      const tileW = Math.min(tileStep, width  - tx);
+      const tileH = Math.min(tileStep, height - ty);
 
-      // YCbCr → RGB (ITU-R BT.601)
-      const r = y + 1.402 * cr;
-      const g = y - 0.344 * cb - 0.714 * cr;
-      const b = y + 1.772 * cb;
+      const padLeft   = Math.min(TILE_PAD, tx);
+      const padTop    = Math.min(TILE_PAD, ty);
+      const padRight  = Math.min(TILE_PAD, width  - tx - tileW);
+      const padBottom = Math.min(TILE_PAD, height - ty - tileH);
 
-      rgba[outIdx * 4] = Math.max(0, Math.min(255, Math.round(r * 255)));
-      rgba[outIdx * 4 + 1] = Math.max(0, Math.min(255, Math.round(g * 255)));
-      rgba[outIdx * 4 + 2] = Math.max(0, Math.min(255, Math.round(b * 255)));
-      rgba[outIdx * 4 + 3] = 255;
+      const patchX = tx - padLeft;
+      const patchY = ty - padTop;
+      const patchW = tileW + padLeft + padRight;
+      const patchH = tileH + padTop  + padBottom;
+
+      const input = codec.encode(rgba, width, patchX, patchY, patchW, patchH, prepared);
+
+      const modelW = codec.fixedSize ?? patchW;
+      const modelH = codec.fixedSize ?? patchH;
+      const patchOut = await session.run(input, [1, codec.channels, modelH, modelW]);
+
+      const outPatchW      = modelW * scale;
+      const outPatchPixels = outPatchW * (modelH * scale);
+
+      codec.decode(
+        patchOut, outPatchW, outPatchPixels,
+        padLeft * scale, padTop * scale, tileW * scale, tileH * scale,
+        outRgba, outW,
+        tx * scale, ty * scale,
+        tx, ty, scale,
+        prepared,
+      );
     }
   }
 
-  return rgba;
+  return { rgba: outRgba, width: outW, height: outH };
 }
 
 // ---------------------------------------------------------------------------
-// Task-specific inference runners
+// Codecs
+// ---------------------------------------------------------------------------
+
+/** Real-ESRGAN: RGB [1,3,H,W] → [1,3,H*s,W*s] */
+const rgbCodec: TileCodec = {
+  channels: 3,
+
+  encode(rgba, width, patchX, patchY, patchW, patchH) {
+    const px = patchW * patchH;
+    const input = new Float32Array(3 * px);
+    for (let row = 0; row < patchH; row++) {
+      for (let col = 0; col < patchW; col++) {
+        const srcIdx = ((patchY + row) * width + (patchX + col)) * 4;
+        const dstIdx = row * patchW + col;
+        input[dstIdx]          = rgba[srcIdx]     / 255;
+        input[px + dstIdx]     = rgba[srcIdx + 1] / 255;
+        input[2 * px + dstIdx] = rgba[srcIdx + 2] / 255;
+      }
+    }
+    return input;
+  },
+
+  decode(patchOut, outPatchW, outPatchPixels, cropX, cropY, cropW, cropH, outRgba, outW, dstBaseX, dstBaseY) {
+    for (let row = 0; row < cropH; row++) {
+      for (let col = 0; col < cropW; col++) {
+        const srcIdx = (cropY + row) * outPatchW + (cropX + col);
+        const dstIdx = ((dstBaseY + row) * outW + (dstBaseX + col)) * 4;
+        outRgba[dstIdx]     = Math.max(0, Math.min(255, Math.round(patchOut[srcIdx]                    * 255)));
+        outRgba[dstIdx + 1] = Math.max(0, Math.min(255, Math.round(patchOut[outPatchPixels + srcIdx]   * 255)));
+        outRgba[dstIdx + 2] = Math.max(0, Math.min(255, Math.round(patchOut[2 * outPatchPixels + srcIdx] * 255)));
+        outRgba[dstIdx + 3] = 255;
+      }
+    }
+  },
+};
+
+/** Sub-pixel CNN: Y-only [1,1,H,W] → [1,1,H*s,W*s], Cb/Cr nearest-neighbor. */
+interface YCbCrPrepared { fullY: Float32Array; fullCb: Float32Array; fullCr: Float32Array; imgW: number; imgH: number }
+
+const YCBCR_MODEL_INPUT = 224;
+
+const ycbcrCodec: TileCodec = {
+  channels: 1,
+  fixedSize: YCBCR_MODEL_INPUT,
+
+  prepare(rgba, width, height): YCbCrPrepared {
+    const n = width * height;
+    const fullY  = new Float32Array(n);
+    const fullCb = new Float32Array(n);
+    const fullCr = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const r = rgba[i * 4]     / 255;
+      const g = rgba[i * 4 + 1] / 255;
+      const b = rgba[i * 4 + 2] / 255;
+      fullY[i]  =  0.299 * r + 0.587 * g + 0.114 * b;
+      fullCb[i] = -0.169 * r - 0.331 * g + 0.500 * b + 0.5;
+      fullCr[i] =  0.500 * r - 0.419 * g - 0.081 * b + 0.5;
+    }
+    return { fullY, fullCb, fullCr, imgW: width, imgH: height };
+  },
+
+  encode(_rgba, width, patchX, patchY, patchW, patchH, prepared) {
+    const { fullY } = prepared as YCbCrPrepared;
+    // Zero-padded to fixedSize × fixedSize; patch pixels placed top-left.
+    const F = YCBCR_MODEL_INPUT;
+    const input = new Float32Array(F * F);  // zero-initialized
+    for (let row = 0; row < patchH; row++) {
+      for (let col = 0; col < patchW; col++) {
+        input[row * F + col] = fullY[(patchY + row) * width + (patchX + col)];
+      }
+    }
+    return input;
+  },
+
+  decode(patchOut, outPatchW, _outPatchPixels, cropX, cropY, cropW, cropH, outRgba, outW, dstBaseX, dstBaseY, tileX, tileY, scale, prepared) {
+    const { fullCb, fullCr, imgW, imgH } = prepared as YCbCrPrepared;
+    for (let row = 0; row < cropH; row++) {
+      for (let col = 0; col < cropW; col++) {
+        const y = patchOut[(cropY + row) * outPatchW + (cropX + col)];
+        const origX = Math.min(tileX + Math.floor(col / scale), imgW - 1);
+        const origY = Math.min(tileY + Math.floor(row / scale), imgH - 1);
+        const chromaIdx = origY * imgW + origX;
+        const cb = fullCb[chromaIdx] - 0.5;
+        const cr = fullCr[chromaIdx] - 0.5;
+        const dstIdx = ((dstBaseY + row) * outW + (dstBaseX + col)) * 4;
+        outRgba[dstIdx]     = Math.max(0, Math.min(255, Math.round((y + 1.402 * cr) * 255)));
+        outRgba[dstIdx + 1] = Math.max(0, Math.min(255, Math.round((y - 0.344 * cb - 0.714 * cr) * 255)));
+        outRgba[dstIdx + 2] = Math.max(0, Math.min(255, Math.round((y + 1.772 * cb) * 255)));
+        outRgba[dstIdx + 3] = 255;
+      }
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Public API
 // ---------------------------------------------------------------------------
 
 /**
  * Run super-resolution on an RGBA pixel buffer.
- *
- * Supports two model types:
- * - **Real-ESRGAN** (realesr-general-x4v3): RGB in/out, dynamic input size, 4× scale.
- *   Input: [1,3,H,W] float32 0-1. Output: [1,3,H*4,W*4].
- * - **Sub-pixel CNN**: Y-channel only, fixed 224×224 input, 3× scale (legacy).
- *
- * The `modelType` parameter selects the pipeline. Default is `'rgb'` (Real-ESRGAN).
+ * Dispatches to the correct codec and tiles automatically.
  */
 export async function runSuperResolution(
   session: OnnxInferenceSession,
@@ -215,103 +385,5 @@ export async function runSuperResolution(
   scale: number,
   modelType: 'rgb' | 'ycbcr' = 'rgb',
 ): Promise<{ rgba: Uint8ClampedArray; width: number; height: number }> {
-  if (modelType === 'ycbcr') {
-    return runSrYCbCr(session, rgba, width, height, scale);
-  }
-  return runSrRgb(session, rgba, width, height, scale);
-}
-
-/** Real-ESRGAN pipeline: RGB [1,3,H,W] → [1,3,H*s,W*s] */
-async function runSrRgb(
-  session: OnnxInferenceSession,
-  rgba: Uint8ClampedArray,
-  width: number,
-  height: number,
-  scale: number,
-): Promise<{ rgba: Uint8ClampedArray; width: number; height: number }> {
-  // Limit input size to keep output within WebGPU buffer limits.
-  // Max long side 256 → 4× output = 1024px, ~12MB tensor (safe).
-  const MAX_SIDE = 256;
-  let inW = width;
-  let inH = height;
-  let inputRgba = rgba;
-
-  if (inW > MAX_SIDE || inH > MAX_SIDE) {
-    const ratio = Math.min(MAX_SIDE / inW, MAX_SIDE / inH);
-    inW = Math.round(inW * ratio);
-    inH = Math.round(inH * ratio);
-    // Resize via canvas
-    const srcCanvas = document.createElement('canvas');
-    srcCanvas.width = width;
-    srcCanvas.height = height;
-    const srcCtx = srcCanvas.getContext('2d')!;
-    srcCtx.putImageData(new ImageData(rgba, width, height), 0, 0);
-    const smallCanvas = document.createElement('canvas');
-    smallCanvas.width = inW;
-    smallCanvas.height = inH;
-    const smallCtx = smallCanvas.getContext('2d')!;
-    smallCtx.drawImage(srcCanvas, 0, 0, inW, inH);
-    inputRgba = smallCtx.getImageData(0, 0, inW, inH).data;
-  }
-
-  const pixelCount = inW * inH;
-
-  // RGBA → NCHW float32 [1,3,H,W], normalized 0-1
-  const input = new Float32Array(3 * pixelCount);
-  const hw = pixelCount;
-  for (let i = 0; i < pixelCount; i++) {
-    input[i]          = inputRgba[i * 4]     / 255;  // R
-    input[hw + i]     = inputRgba[i * 4 + 1] / 255;  // G
-    input[2 * hw + i] = inputRgba[i * 4 + 2] / 255;  // B
-  }
-
-  const output = await session.run(input, [1, 3, inH, inW]);
-
-  // Output: NCHW [1,3,H*s,W*s] → RGBA
-  const outW = inW * scale;
-  const outH = inH * scale;
-  const outPixels = outW * outH;
-  const outRgba = new Uint8ClampedArray(outPixels * 4);
-  for (let i = 0; i < outPixels; i++) {
-    outRgba[i * 4]     = Math.max(0, Math.min(255, Math.round(output[i]              * 255)));
-    outRgba[i * 4 + 1] = Math.max(0, Math.min(255, Math.round(output[outPixels + i]  * 255)));
-    outRgba[i * 4 + 2] = Math.max(0, Math.min(255, Math.round(output[2*outPixels + i]* 255)));
-    outRgba[i * 4 + 3] = 255;
-  }
-
-  return { rgba: outRgba, width: outW, height: outH };
-}
-
-/** Sub-pixel CNN legacy pipeline: YCbCr, fixed 224 input */
-async function runSrYCbCr(
-  session: OnnxInferenceSession,
-  rgba: Uint8ClampedArray,
-  width: number,
-  height: number,
-  scale: number,
-): Promise<{ rgba: Uint8ClampedArray; width: number; height: number }> {
-  const MODEL_INPUT = 224;
-  const srcCanvas = document.createElement('canvas');
-  srcCanvas.width = width;
-  srcCanvas.height = height;
-  const srcCtx = srcCanvas.getContext('2d')!;
-  srcCtx.putImageData(new ImageData(rgba, width, height), 0, 0);
-
-  const resizedCanvas = document.createElement('canvas');
-  resizedCanvas.width = MODEL_INPUT;
-  resizedCanvas.height = MODEL_INPUT;
-  const resizedCtx = resizedCanvas.getContext('2d')!;
-  resizedCtx.drawImage(srcCanvas, 0, 0, MODEL_INPUT, MODEL_INPUT);
-  const resizedData = resizedCtx.getImageData(0, 0, MODEL_INPUT, MODEL_INPUT);
-
-  const { yTensor, yShape, cbData, crData } = srPreprocess(
-    resizedData.data, MODEL_INPUT, MODEL_INPUT,
-  );
-  const yUpscaled = await session.run(yTensor, yShape);
-  const outWidth = MODEL_INPUT * scale;
-  const outHeight = MODEL_INPUT * scale;
-  const outRgba = srPostprocess(
-    yUpscaled, outWidth, outHeight, cbData, crData, MODEL_INPUT, MODEL_INPUT,
-  );
-  return { rgba: outRgba, width: outWidth, height: outHeight };
+  return runTiledInference(session, rgba, width, height, scale, modelType === 'ycbcr' ? ycbcrCodec : rgbCodec);
 }
