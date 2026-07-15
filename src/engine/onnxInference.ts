@@ -104,6 +104,8 @@ export class OnnxInferenceSession {
 
 let ortLoadPromise: Promise<void> | null = null;
 
+/** @internal Reset ORT load state between tests. */
+export function resetOrtLoad(): void { ortLoadPromise = null; }
 function ensureOrtLoaded(): Promise<void> {
   if (typeof globalThis.ort !== 'undefined') return Promise.resolve();
   if (ortLoadPromise) return ortLoadPromise;
@@ -158,12 +160,15 @@ interface TileCodec {
   ): void;
 }
 
-const INITIAL_TILE = 64;
-const MIN_TILE     = 16;
+export const INITIAL_TILE = 64;
+export const MIN_TILE     = 16;
 const TILE_PAD     = 8;
 
 /** Module-level cache: once we find a tile size that works, reuse it. */
 let provenTileSize = INITIAL_TILE;
+
+/** @internal Reset tile cache between tests. */
+export function resetProvenTileSize(): void { provenTileSize = INITIAL_TILE; }
 
 /**
  * Run inference on an RGBA image by splitting it into overlapping tiles.
@@ -213,7 +218,7 @@ async function runTiledInference(
   }
 }
 
-function isGpuAllocError(msg: string): boolean {
+export function isGpuAllocError(msg: string): boolean {
   return msg.includes('Failed to generate')
     || msg.includes('Failed to run')
     || msg.includes('JSEP')

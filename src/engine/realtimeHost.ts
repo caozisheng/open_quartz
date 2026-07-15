@@ -27,7 +27,7 @@ const DYNAMIC_SYSTEM_SOURCES: Record<string, true> = { time: true, timeDelta: tr
  * A pipeline is static when no node depends on time-varying inputs.
  * Static pipelines only need a single render pass.
  */
-function isStaticPipeline(nodes: Node<ShaderNodeData>[]): boolean {
+export function isStaticPipeline(nodes: Node<ShaderNodeData>[]): boolean {
   for (const node of nodes) {
     if (node.data.type === 'input' && node.data.inputMode === 'video') return false;
     if (node.data.type === 'input' && node.data.inputMode === 'system'

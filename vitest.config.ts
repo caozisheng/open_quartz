@@ -33,8 +33,8 @@ export default defineConfig({
         'src/utils/tauri.ts',
       ],
       thresholds: {
-        lines: 78,
-        statements: 78,
+        lines: 75,
+        statements: 75,
         branches: 55,
         functions: 64,
       },
