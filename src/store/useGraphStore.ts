@@ -12,6 +12,7 @@ import { MATH_OPS, getMathPorts } from '../engine/mathOps';
 import { ONNX_CATALOG } from '../engine/onnxCatalog';
 import type { CatalogEntry } from '../engine/onnxCatalog';
 import { OnnxModelManager } from '../engine/onnxModelManager';
+import { OnnxInferenceSession } from '../engine/onnxInference';
 
 // Singleton model manager — shared across the app lifetime.
 export const modelManager = new OnnxModelManager();
@@ -187,6 +188,8 @@ async function downloadCatalogModel(
         node.data.onnxProgress = 1;
       }
     });
+    // Probe backend for cached models too (result may be in localStorage).
+    void probeModelBackend(nodeId, entry, cached, set);
     return;
   }
 
@@ -210,7 +213,7 @@ async function downloadCatalogModel(
   });
 
   try {
-    await modelManager.downloadModel(entry);
+    const buffer = await modelManager.downloadModel(entry);
     set((state) => {
       const node = state.nodes.find((n) => n.id === nodeId);
       if (node) {
@@ -218,6 +221,8 @@ async function downloadCatalogModel(
         node.data.onnxProgress = 1;
       }
     });
+    // Probe WebGPU compatibility immediately after download.
+    void probeModelBackend(nodeId, entry, buffer, set);
   } catch (err) {
     set((state) => {
       const node = state.nodes.find((n) => n.id === nodeId);
@@ -228,6 +233,72 @@ async function downloadCatalogModel(
     });
   } finally {
     unsub();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WebGPU probe — detect backend compatibility before user presses Play
+// ---------------------------------------------------------------------------
+
+/** Cache key: modelId + GPU vendor → 'webgpu' | 'wasm'. */
+function probeStorageKey(modelId: string, vendor: string): string {
+  return `oq:probe:${modelId}:${vendor}`;
+}
+
+async function getGpuVendor(): Promise<string> {
+  try {
+    if (!navigator.gpu) return 'unknown';
+    const adapter = await navigator.gpu.requestAdapter();
+    return adapter?.info?.vendor ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** Detection models (YOLO) run via the Rust wasm path — skip TS ORT probe. */
+const SKIP_PROBE_TASKS = new Set(['detection']);
+
+async function probeModelBackend(
+  nodeId: string,
+  entry: CatalogEntry,
+  buffer: ArrayBuffer,
+  set: (fn: (state: GraphState) => void) => void,
+): Promise<void> {
+  if (SKIP_PROBE_TASKS.has(entry.task)) return;
+
+  const vendor = await getGpuVendor();
+  const key = probeStorageKey(entry.id, vendor);
+
+  // Check localStorage cache first.
+  try {
+    const cached = localStorage.getItem(key);
+    if (cached === 'webgpu' || cached === 'wasm') {
+      set((state) => {
+        const node = state.nodes.find((n) => n.id === nodeId);
+        if (node) node.data.onnxBackend = cached;
+      });
+      return;
+    }
+  } catch { /* localStorage may be unavailable */ }
+
+  // Run probe.
+  const session = new OnnxInferenceSession();
+  try {
+    await session.loadFromBuffer(buffer);
+    const inputChannels = entry.task === 'super-resolution' || entry.task === 'background-removal' ? 3 : 3;
+    const backend = await session.probeBackend(inputChannels);
+
+    // Cache result.
+    try { localStorage.setItem(key, backend); } catch { /* ignore */ }
+
+    set((state) => {
+      const node = state.nodes.find((n) => n.id === nodeId);
+      if (node) node.data.onnxBackend = backend;
+    });
+  } catch {
+    // Probe itself failed (e.g. ORT load error) — don't block, leave backend unset.
+  } finally {
+    session.dispose();
   }
 }
 

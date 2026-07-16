@@ -59,6 +59,30 @@ export class OnnxInferenceSession {
     console.warn('[onnx] Fell back to WASM backend');
   }
 
+  /**
+   * Probe WebGPU compatibility by running a tiny dummy inference.
+   * If the probe fails with a GPU error, automatically falls back to WASM.
+   * Returns the backend that will be used ('webgpu' or 'wasm').
+   */
+  async probeBackend(inputChannels: number = 3): Promise<'webgpu' | 'wasm'> {
+    if (this._isWasm) return 'wasm';
+    if (!this.session) throw new Error('OnnxInferenceSession not loaded');
+    const size = 8;  // minimal spatial dims
+    const dummy = new Float32Array(inputChannels * size * size);
+    try {
+      await this.run(dummy, [1, inputChannels, size, size]);
+      return 'webgpu';
+    } catch {
+      // WebGPU kernel failed — fall back to WASM
+      try {
+        await this.fallbackToWasm();
+        return 'wasm';
+      } catch {
+        return 'wasm';
+      }
+    }
+  }
+
   /** Run inference with a single float32 input tensor. */
   async run(input: Float32Array, shape: number[]): Promise<Float32Array> {
     if (!this.session) throw new Error('OnnxInferenceSession not loaded');
