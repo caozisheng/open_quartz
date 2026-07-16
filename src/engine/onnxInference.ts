@@ -455,7 +455,7 @@ function makeBgRemovalCodec(fixedInputSize?: number): TileCodec {
 }
 
 const u2netpCodec = makeBgRemovalCodec(320);
-const modnetCodec = makeBgRemovalCodec();  // dynamic input
+const modnetCodec = makeBgRemovalCodec(512);
 
 // ---------------------------------------------------------------------------
 // Public API
