@@ -212,6 +212,11 @@ export class OnnxModelManager {
     return null;
   }
 
+  /** Manually cache a model buffer (for custom models loaded from local files). */
+  cacheBuffer(modelId: string, buffer: ArrayBuffer): void {
+    this.bufferCache.set(modelId, buffer);
+  }
+
   // -----------------------------------------------------------------------
   // Teardown
   // -----------------------------------------------------------------------

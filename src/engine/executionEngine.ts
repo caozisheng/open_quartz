@@ -434,7 +434,14 @@ export class ExecutionEngine {
         return;
       }
 
-      // Default: detection via Rust wasm path
+      // Custom or generic models: image→image passthrough via rgbCodec (scale=1)
+      if (node.data.onnxSource === 'custom' || !catalogEntry) {
+        await this.runTsOrtInference(plan, nodeId, sourceCanvas, srcW, srcH, modelId,
+          (s, d, w, h) => runSuperResolution(s, d, w, h, 1, 'rgb'));
+        return;
+      }
+
+      // Catalog detection models: Rust wasm path
       const descriptor = ONNX_MODELS[modelId];
       if (!descriptor) throw new Error(`Unknown ONNX model: ${modelId}`);
 
@@ -904,8 +911,11 @@ export class ExecutionEngine {
             await runTsOrt((s, d, w, h) => runBackgroundRemoval(s, d, w, h, modelId));
           } else if (catalogEntry && catalogEntry.task === 'depth-estimation') {
             await runTsOrt((s, d, w, h) => runDepthEstimation(s, d, w, h));
+          } else if (node.data.onnxSource === 'custom' || !catalogEntry) {
+            // Custom or generic: image→image passthrough
+            await runTsOrt((s, d, w, h) => runSuperResolution(s, d, w, h, 1, 'rgb'));
           } else {
-            // Detection via Rust wasm path
+            // Catalog detection models: Rust wasm path
             const descriptor = ONNX_MODELS[modelId];
             if (!descriptor) throw new Error(`Unknown ONNX model: ${modelId}`);
             const session = await this.getOnnxSession(descriptor);

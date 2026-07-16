@@ -13,6 +13,7 @@ import { ONNX_CATALOG } from '../engine/onnxCatalog';
 import type { CatalogEntry } from '../engine/onnxCatalog';
 import { OnnxModelManager } from '../engine/onnxModelManager';
 import { OnnxInferenceSession } from '../engine/onnxInference';
+import { introspectOnnxModel, metaToDefaultPorts } from '../engine/onnxIntrospect';
 
 // Singleton model manager — shared across the app lifetime.
 export const modelManager = new OnnxModelManager();
@@ -52,6 +53,7 @@ interface GraphState {
   addShaderNode: (code: string, label: string, position?: { x: number; y: number }) => void;
   addOnnxNode: (catalogId: string, position?: { x: number; y: number }) => void;
   addCustomOnnxNode: (position?: { x: number; y: number }) => void;
+  loadCustomOnnxModel: (nodeId: string, buffer: ArrayBuffer, fileName: string) => void;
   addMathNode: (mathOp: string, position?: { x: number; y: number }) => void;
   removeNode: (id: string) => void;
   removeSelectedElements: () => void;
@@ -504,6 +506,58 @@ export const useGraphStore = create<GraphState>()(
           },
         };
         set((state) => { state.nodes.push(node); });
+      },
+      loadCustomOnnxModel: (nodeId, buffer, fileName) => {
+        const modelId = `custom_${nodeId}`;
+        set((state) => {
+          const node = state.nodes.find((n) => n.id === nodeId);
+          if (node) {
+            node.data.onnxStatus = 'introspecting';
+            node.data.onnxCustomFileName = fileName;
+          }
+        });
+        void (async () => {
+          try {
+            // Introspect model → derive ports and task
+            const meta = await introspectOnnxModel(buffer);
+            const ports = metaToDefaultPorts(meta);
+            // Prefix port IDs with node ID
+            const inputs = ports.inputs.map((p) => ({ ...p, id: `${nodeId}_${p.label}` }));
+            const outputs = ports.outputs.map((p) => ({ ...p, id: `${nodeId}_${p.label}` }));
+            // Cache buffer so the execution engine can load it
+            modelManager.cacheBuffer(modelId, buffer);
+            set((state) => {
+              const node = state.nodes.find((n) => n.id === nodeId);
+              if (node) {
+                node.data.label = fileName.replace(/\.onnx$/i, '');
+                node.data.inputs = inputs;
+                node.data.outputs = outputs;
+                node.data.onnxModelId = modelId;
+                node.data.onnxStatus = 'ready';
+              }
+            });
+            // Probe backend
+            const session = new OnnxInferenceSession();
+            try {
+              await session.loadFromBuffer(buffer);
+              const backend = await session.probeBackend(3);
+              set((state) => {
+                const node = state.nodes.find((n) => n.id === nodeId);
+                if (node) node.data.onnxBackend = backend;
+              });
+            } finally {
+              session.dispose();
+            }
+          } catch (err) {
+            set((state) => {
+              const node = state.nodes.find((n) => n.id === nodeId);
+              if (node) {
+                node.data.onnxStatus = 'error';
+                node.data.onnxError = err instanceof Error ? err.message : String(err);
+              }
+            });
+          }
+        })();
       },
       addMathNode: (mathOp, position) => {
         saveSnapshot();

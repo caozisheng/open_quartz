@@ -382,7 +382,7 @@ describe('ExecutionEngine ONNX branch', () => {
     expect(onOutput).not.toHaveBeenCalled();
   });
 
-  it('emits onNodeError with "Unknown ONNX model" for an unregistered modelId', async () => {
+  it('emits onNodeError for an unregistered modelId (not in catalog or cache)', async () => {
     const engine = new ExecutionEngine(document.createElement('canvas'));
     const input = imageInputNode('img_1');
     const onnx = onnxNode('onnx_1', { onnxModelId: 'not-a-real-model' });
@@ -394,7 +394,9 @@ describe('ExecutionEngine ONNX branch', () => {
     vi.mocked(topologicalSort).mockReturnValueOnce(['img_1', 'onnx_1']);
     await engine.run([input, onnx], edges, undefined, onNodeError);
 
-    expect(onNodeError).toHaveBeenCalledWith('onnx_1', expect.stringContaining('Unknown ONNX model'));
+    // Unknown models fall through to the generic TS ORT path, which fails
+    // because the model buffer is not in cache.
+    expect(onNodeError).toHaveBeenCalledWith('onnx_1', expect.stringContaining('not downloaded'));
   });
 
   it('emits onNodeError when the upstream produced no texture', async () => {

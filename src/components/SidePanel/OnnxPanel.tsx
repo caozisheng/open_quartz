@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useCallback } from 'react';
 import { useGraphStore } from '../../store/useGraphStore';
 import { ONNX_MODELS } from '../../engine/onnxRegistry';
 import { ONNX_CATALOG } from '../../engine/onnxCatalog';
@@ -43,11 +43,25 @@ interface OnnxPanelProps {
 
 export function OnnxPanel({ nodeId, modelId, source, status, backend, score, iou }: OnnxPanelProps) {
   const updateNodeData = useGraphStore((s) => s.updateNodeData);
+  const loadCustomOnnxModel = useGraphStore((s) => s.loadCustomOnnxModel);
   const outputData = useGraphStore((s) => s.outputData[nodeId]);
   const nodeData = useGraphStore((s) => {
     const node = s.nodes?.find((n) => n.id === nodeId);
     return node?.data;
   });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCustomFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const buffer = reader.result as ArrayBuffer;
+      loadCustomOnnxModel(nodeId, buffer, file.name);
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  }, [nodeId, loadCustomOnnxModel]);
 
   // Resolve descriptor: catalog first, then legacy registry
   const catalogEntry: CatalogEntry | undefined = modelId ? ONNX_CATALOG[modelId] : undefined;
@@ -145,9 +159,10 @@ export function OnnxPanel({ nodeId, modelId, source, status, backend, score, iou
             {!nodeData?.onnxCustomFileName && !nodeData?.onnxCustomPath && (
               <div className="text-[#aeaeb2] italic">No model file selected</div>
             )}
+            <input ref={fileInputRef} type="file" accept=".onnx" onChange={handleCustomFileChange} className="hidden" />
             <button
-              disabled
-              className="mt-2 w-full text-[11px] text-[#86868b] bg-[#f5f5f7] rounded px-3 py-1.5 border border-[#d2d2d7] cursor-not-allowed opacity-60"
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-2 w-full text-[11px] text-[#007aff] bg-[#f5f5f7] rounded px-3 py-1.5 border border-[#d2d2d7] cursor-default hover:bg-[#e8e8ed] transition-colors"
             >
               Select Model File…
             </button>
