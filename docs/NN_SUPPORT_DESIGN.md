@@ -581,7 +581,7 @@ Camera 256×256 → MiDaS small (~40ms) → depth map (sampler2D)
 | 大型分割 (SegFormer-B5) | >80MB |
 | PaddleOCR | 多阶段管线，不适合帧级实时 |
 
-#### Phase 5: 模型自省与 Custom ONNX 节点
+#### Phase 5: 模型自省与 Custom ONNX 节点 ✅ 已完成 (v0.9.x)
 
 ##### 5.5.1 模型自省引擎（ONNX Metadata Extraction）
 
