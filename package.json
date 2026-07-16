@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "build:wasm": "wasm-pack build rust/crates/yolo-detector --target web --release --out-dir pkg",
+    "build:wasm:seg": "wasm-pack build rust/crates/yolo-sem --target web --release --out-dir pkg",
     "copy:ort": "node scripts/copy-ort.mjs"
   },
   "dependencies": {
