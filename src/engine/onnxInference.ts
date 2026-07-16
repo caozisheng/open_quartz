@@ -197,7 +197,16 @@ async function runTiledInference(
   codec: TileCodec,
 ): Promise<{ rgba: Uint8ClampedArray<ArrayBuffer>; width: number; height: number }> {
   if (codec.fixedSize) {
-    return runTilesAtSize(session, rgba, width, height, scale, codec, codec.fixedSize - 2 * TILE_PAD);
+    const tileStep = codec.fixedSize - 2 * TILE_PAD;
+    try {
+      return await runTilesAtSize(session, rgba, width, height, scale, codec, tileStep);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!isGpuAllocError(msg) || session.isWasmFallback) throw e;
+      console.warn('[tiled-inference] WebGPU incompatible (fixed-size model), falling back to WASM');
+      await session.fallbackToWasm();
+      return runTilesAtSize(session, rgba, width, height, scale, codec, tileStep);
+    }
   }
 
   // Dynamic model: adaptive tile sizing → WASM fallback.
